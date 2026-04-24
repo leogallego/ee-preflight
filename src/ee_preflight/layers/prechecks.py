@@ -16,7 +16,9 @@ import re
 import shutil
 import subprocess
 
-from ..models import Finding, LayerResult, LayerStatus, Severity, ValidateContext
+import yaml
+
+from ..models import DepFormat, Finding, LayerResult, LayerStatus, Severity, ValidateContext
 
 
 def validate(ctx: ValidateContext) -> LayerResult:
@@ -34,6 +36,7 @@ def validate(ctx: ValidateContext) -> LayerResult:
     _check_file_refs(ctx, findings)
     _check_build_args(ctx, findings)
     _check_base_image(ctx, findings)
+    _check_ah_collections(ctx, findings)
 
     has_missing_files = any(f.code == "missing_file" for f in findings)
     status: LayerStatus = "fail" if has_missing_files else "pass"
@@ -165,3 +168,69 @@ def _check_base_image(ctx: ValidateContext, findings: list[Finding]) -> None:
                 message="Base image uses SHA digest pin",
             )
         )
+
+
+AH_PREFIXES = ("ansible.", "redhat.")
+AH_PUBLIC_EXCEPTIONS = {
+    "ansible.posix",
+    "ansible.utils",
+    "ansible.netcommon",
+}
+
+
+def _check_ah_collections(ctx: ValidateContext, findings: list[Finding]) -> None:
+    """Warn if collections likely require Automation Hub but AH_TOKEN is not set."""
+    if os.environ.get("AH_TOKEN"):
+        return
+
+    collection_names = _extract_collection_names(ctx)
+    if not collection_names:
+        return
+
+    ah_collections = [
+        name for name in collection_names
+        if name.startswith(AH_PREFIXES) and name not in AH_PUBLIC_EXCEPTIONS
+    ]
+
+    if ah_collections:
+        names = ", ".join(sorted(ah_collections))
+        findings.append(
+            Finding(
+                severity=Severity.WARNING,
+                message=f"Collections that may require Automation Hub: {names}",
+                fix="export AH_TOKEN=<offline-token> if these are on Automation Hub",
+            )
+        )
+
+
+def _extract_collection_names(ctx: ValidateContext) -> list[str]:
+    """Extract collection names from the galaxy dependency (file or inline)."""
+    if ctx.ee.galaxy is None:
+        return []
+
+    if ctx.ee.galaxy.format == DepFormat.INLINE:
+        names: list[str] = []
+        for entry in ctx.ee.galaxy.entries:
+            name = entry.get("name", "") if isinstance(entry, dict) else str(entry)
+            if name:
+                names.append(name)
+        return names
+
+    if (
+        ctx.ee.galaxy.format == DepFormat.FILE
+        and ctx.ee.galaxy.file_path
+        and ctx.ee.galaxy.file_path.exists()
+    ):
+        try:
+            data = yaml.safe_load(ctx.ee.galaxy.file_path.read_text())
+        except yaml.YAMLError:
+            return []
+        if isinstance(data, dict):
+            collections = data.get("collections", [])
+            return [
+                c["name"] if isinstance(c, dict) else str(c)
+                for c in collections
+                if (isinstance(c, dict) and "name" in c) or isinstance(c, str)
+            ]
+
+    return []

@@ -1,0 +1,32 @@
+{
+  "cache_version": "1",
+  "entries": [
+    {
+      "base_image": "registry.redhat.io/ansible-automation-platform-26/ee-minimal-rhel9:latest",
+      "python_package": "gssapi",
+      "missing_file": "krb5-config",
+      "resolved_rpm": "krb5-devel",
+      "platform": "rpm",
+      "timestamp": "2026-04-24T05:15:30.123456+00:00",
+      "python_version": "3.11"
+    },
+    {
+      "base_image": "registry.redhat.io/ansible-automation-platform-26/ee-minimal-rhel9:latest",
+      "python_package": "lxml",
+      "missing_file": "libxml2.h",
+      "resolved_rpm": "libxml2-devel",
+      "platform": "rpm",
+      "timestamp": "2026-04-24T05:16:12.456789+00:00",
+      "python_version": "3.11"
+    },
+    {
+      "base_image": "ubuntu:22.04",
+      "python_package": "lxml",
+      "missing_file": "libxml2.h",
+      "resolved_rpm": "libxml2-dev",
+      "platform": "dpkg",
+      "timestamp": "2026-04-24T05:17:45.789012+00:00",
+      "python_version": "3.10"
+    }
+  ]
+}

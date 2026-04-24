@@ -21,6 +21,8 @@ def run(
     keep_venv: bool = False,
     container_test: bool = False,
     verbose: bool = False,
+    use_cache: bool = True,
+    cache_path: Path | None = None,
 ) -> list[LayerResult]:
     ee = parse_ee(ee_path)
     user_venv = venv_path is not None
@@ -39,6 +41,8 @@ def run(
         fix=fix,
         container_test=container_test,
         verbose=verbose,
+        use_cache=use_cache,
+        cache_path=cache_path,
     )
 
     results: list[LayerResult] = []
@@ -110,6 +114,8 @@ def run(
                         fix=False,
                         container_test=ctx.container_test,
                         verbose=verbose,
+                        use_cache=use_cache,
+                        cache_path=cache_path,
                     )
 
                     new_r0 = prechecks.validate(ctx)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 
+from ..cache import DependencyCache
 from ..container import ContainerRuntime
 from ..models import Finding, LayerResult, Severity, ValidateContext
 
@@ -27,6 +28,11 @@ def validate(ctx: ValidateContext, extra_packages: set[str] | None = None) -> La
     except RuntimeError as e:
         findings.append(Finding(severity=Severity.ERROR, message=str(e)))
         return LayerResult(name="system_deps", status="fail", findings=findings)
+
+    # Initialize cache
+    cache = None
+    if ctx.use_cache:
+        cache = DependencyCache(cache_path=ctx.cache_path)
 
     image = ctx.ee.base_image
     findings.append(
@@ -82,6 +88,7 @@ def validate(ctx: ValidateContext, extra_packages: set[str] | None = None) -> La
             pkg,
             bindep_install,
             python_version,
+            cache=cache,
         )
         all_pkg_findings.extend(pkg_result)
         if rpm:
@@ -116,6 +123,7 @@ def validate(ctx: ValidateContext, extra_packages: set[str] | None = None) -> La
                 bindep_install,
                 python_version,
                 extra_rpms=discovered_rpms,
+                cache=cache,
             )
             all_pkg_findings.extend(pkg_result)
             if rpm:
@@ -217,6 +225,7 @@ def _test_wheel_build(
     bindep_install: str,
     python_version: str,
     extra_rpms: set[str] | None = None,
+    cache: DependencyCache | None = None,
 ) -> tuple[list[Finding], str | None]:
     pkg_name = pkg.split(">=")[0].split("==")[0].split("<")[0].strip()
     pkgmgr = ctx.ee.options.get("package_manager_path", "/usr/bin/microdnf")
@@ -250,7 +259,9 @@ def _test_wheel_build(
     missing_file = _extract_missing_file(output)
 
     if missing_file:
-        pkg_provider = _find_providing_package(runtime, image, missing_file, python_version)
+        pkg_provider = _find_providing_package(
+            runtime, image, missing_file, python_version, pkg_name=pkg_name, cache=cache
+        )
         if pkg_provider:
             findings.append(
                 Finding(
@@ -295,9 +306,30 @@ def _find_providing_package(
     image: str,
     missing_file: str,
     python_version: str,
+    pkg_name: str = "",
+    cache: DependencyCache | None = None,
 ) -> str | None:
     if missing_file == "Python.h":
         return f"python{python_version}-devel"
+
+    # Detect platform (rpm vs dpkg)
+    platform = "rpm"  # default
+    if "debian" in image.lower() or "ubuntu" in image.lower():
+        platform = "dpkg"
+
+    # Check cache first
+    if cache:
+        cached = cache.get(
+            base_image=image,
+            python_package=pkg_name,
+            missing_file=missing_file,
+            platform=platform,
+        )
+        if cached is not None:
+            return cached
+
+    # Cache miss - run container resolution
+    resolved_rpm: str | None = None
 
     # Try dnf provides inside the container (install dnf if needed)
     search = f"*/pkgconfig/{missing_file}.pc" if "." not in missing_file else f"*/{missing_file}"
@@ -319,19 +351,32 @@ def _find_providing_package(
         # Prefer -devel packages for header/pkgconfig lookups
         for c in candidates:
             if c.endswith("-devel"):
-                return c
-        if candidates:
-            return candidates[0]
+                resolved_rpm = c
+                break
+        if not resolved_rpm and candidates:
+            resolved_rpm = candidates[0]
 
     # Try apt-file for Debian-based containers
-    result = runtime.run(
-        image,
-        f"apt-file search '{missing_file}' 2>/dev/null | head -1",
-        timeout=60,
-    )
-    if result.returncode == 0 and result.stdout.strip():
-        pkg = str(result.stdout.strip().split(":")[0])
-        if pkg:
-            return pkg
+    if not resolved_rpm:
+        result = runtime.run(
+            image,
+            f"apt-file search '{missing_file}' 2>/dev/null | head -1",
+            timeout=60,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            pkg = str(result.stdout.strip().split(":")[0])
+            if pkg:
+                resolved_rpm = pkg
 
-    return None
+    # Cache the result (even if None, to avoid retrying failed lookups)
+    if cache:
+        cache.set(
+            base_image=image,
+            python_package=pkg_name,
+            missing_file=missing_file,
+            resolved_rpm=resolved_rpm,
+            platform=platform,
+            python_version=python_version,
+        )
+
+    return resolved_rpm

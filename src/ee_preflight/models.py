@@ -89,3 +89,5 @@ class ValidateContext:
     fix: bool = False
     container_test: bool = False
     verbose: bool = False
+    use_cache: bool = True
+    cache_path: Path | None = None

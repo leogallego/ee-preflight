@@ -16,7 +16,7 @@ import re
 import shutil
 import subprocess
 
-from ..models import Finding, LayerResult, Severity, ValidateContext
+from ..models import Finding, LayerResult, LayerStatus, Severity, ValidateContext
 
 
 def validate(ctx: ValidateContext) -> LayerResult:
@@ -36,7 +36,7 @@ def validate(ctx: ValidateContext) -> LayerResult:
     _check_base_image(ctx, findings)
 
     has_missing_files = any(f.severity == Severity.ERROR and "not found" in f.message for f in findings)
-    status = "fail" if has_missing_files else "pass"
+    status: LayerStatus = "fail" if has_missing_files else "pass"
 
     return LayerResult(name="prechecks", status=status, findings=findings)
 
@@ -62,14 +62,14 @@ def _check_ansible_lint(ctx: ValidateContext, findings: list[Finding]) -> None:
         return
 
     try:
-        result = subprocess.run(
+        proc = subprocess.run(
             ["ansible-lint", str(ctx.ee.path)],
             capture_output=True,
             text=True,
             timeout=30,
         )
-        if result.returncode != 0:
-            for line in result.stdout.splitlines():
+        if proc.returncode != 0:
+            for line in proc.stdout.splitlines():
                 if ctx.ee.path.name in line and "]" in line:
                     findings.append(
                         Finding(

@@ -72,7 +72,7 @@ def validate(ctx: ValidateContext) -> tuple[LayerResult, list[Finding], set[str]
 
     for attempt in range(MAX_RETRIES):
         try:
-            result = subprocess.run(
+            proc = subprocess.run(
                 [
                     "ade",
                     "install",
@@ -98,12 +98,12 @@ def validate(ctx: ValidateContext) -> tuple[LayerResult, list[Finding], set[str]
             )
             return LayerResult(name="galaxy", status="fail", findings=findings), [], set()
 
-        output = result.stdout + result.stderr
+        output = proc.stdout + proc.stderr
         collections_installed = "Installed collections include:" in output
 
-        if result.returncode == 0 or collections_installed:
+        if proc.returncode == 0 or collections_installed:
             installed = _count_collections(output)
-            if result.returncode != 0:
+            if proc.returncode != 0:
                 python_build_findings, failed_pkgs = _parse_python_build_errors(output)
             else:
                 python_build_findings, failed_pkgs = [], set()

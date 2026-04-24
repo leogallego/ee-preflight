@@ -12,6 +12,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from typing import Any, Literal
+
+LayerStatus = Literal["pass", "fail", "skipped"]
 
 
 class Severity(Enum):
@@ -43,7 +46,7 @@ class Finding:
     fix: str | None = None
     source: str | None = None
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, str | None]:
         """Convert to dictionary for JSON serialization."""
         return {
             "severity": self.severity.value,
@@ -64,7 +67,7 @@ class LayerResult:
     """
 
     name: str
-    status: str
+    status: LayerStatus
     findings: list[Finding] = field(default_factory=list)
 
     @property
@@ -72,7 +75,7 @@ class LayerResult:
         """Check if this layer has any ERROR-level findings."""
         return any(f.severity == Severity.ERROR for f in self.findings)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
             "name": self.name,
@@ -104,7 +107,7 @@ class DepRef:
 
     format: DepFormat
     file_path: Path | None = None
-    entries: list = field(default_factory=list)
+    entries: list[str | dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -132,10 +135,10 @@ class EEDefinition:
     galaxy: DepRef | None = None
     python: DepRef | None = None
     system: DepRef | None = None
-    build_steps: dict = field(default_factory=dict)
-    build_files: list = field(default_factory=list)
-    options: dict = field(default_factory=dict)
-    raw: dict = field(default_factory=dict)
+    build_steps: dict[str, list[str]] = field(default_factory=dict)
+    build_files: list[dict[str, str]] = field(default_factory=list)
+    options: dict[str, Any] = field(default_factory=dict)
+    raw: dict[str, Any] = field(default_factory=dict)
 
     @property
     def build_args(self) -> list[str]:

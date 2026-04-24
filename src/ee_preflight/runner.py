@@ -237,7 +237,7 @@ def _run_build(ee: EEDefinition, tag: str | None) -> LayerResult:
             cmd.extend(["--build-arg", f"{arg_name}={val}"])
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     except subprocess.TimeoutExpired:
         return LayerResult(
             name="build",
@@ -250,7 +250,7 @@ def _run_build(ee: EEDefinition, tag: str | None) -> LayerResult:
             ],
         )
 
-    if result.returncode == 0:
+    if proc.returncode == 0:
         return LayerResult(
             name="build",
             status="pass",
@@ -268,7 +268,7 @@ def _run_build(ee: EEDefinition, tag: str | None) -> LayerResult:
         findings=[
             Finding(
                 severity=Severity.ERROR,
-                message=f"Build failed: {result.stderr[-300:]}",
+                message=f"Build failed: {proc.stderr[-300:]}",
             )
         ],
     )

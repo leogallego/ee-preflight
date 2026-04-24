@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 
-from ..models import DepFormat, Finding, LayerResult, Severity, ValidateContext
+from ..models import DepFormat, Finding, LayerResult, LayerStatus, Severity, ValidateContext
 
 ADE_ENV_DIR = ".ansible-dev-environment"
 DISCOVERED_PYTHON = "discovered_requirements.txt"
@@ -52,7 +52,7 @@ def validate(ctx: ValidateContext) -> LayerResult:
     _diff_python_deps(ctx, discovered_python, findings)
     _diff_system_deps(ctx, discovered_system, findings)
 
-    status = "fail" if any(f.severity == Severity.ERROR for f in findings) else "pass"
+    status: LayerStatus = "fail" if any(f.severity == Severity.ERROR for f in findings) else "pass"
     return LayerResult(name="python_deps", status=status, findings=findings)
 
 

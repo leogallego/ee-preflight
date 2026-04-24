@@ -18,7 +18,7 @@ import re
 
 from ..cache import DependencyCache
 from ..container import ContainerRuntime
-from ..models import Finding, LayerResult, Severity, ValidateContext
+from ..models import Finding, LayerResult, LayerStatus, Severity, ValidateContext
 
 # Patterns for extracting missing files/dependencies from wheel build errors
 MISSING_FILE_PATTERNS = [
@@ -71,12 +71,12 @@ def validate(ctx: ValidateContext, extra_packages: set[str] | None = None) -> La
         )
     )
 
-    pull_result = runtime.pull(image)
-    if pull_result.returncode != 0:
+    pull_proc = runtime.pull(image)
+    if pull_proc.returncode != 0:
         findings.append(
             Finding(
                 severity=Severity.ERROR,
-                message=f"Failed to pull base image: {pull_result.stderr.strip()}",
+                message=f"Failed to pull base image: {pull_proc.stderr.strip()}",
             )
         )
         return LayerResult(name="system_deps", status="fail", findings=findings)
@@ -172,7 +172,7 @@ def validate(ctx: ValidateContext, extra_packages: set[str] | None = None) -> La
 
     findings.extend(all_pkg_findings)
 
-    status = "fail" if any(f.severity == Severity.ERROR for f in findings) else "pass"
+    status: LayerStatus = "fail" if any(f.severity == Severity.ERROR for f in findings) else "pass"
     return LayerResult(name="system_deps", status=status, findings=findings)
 
 
@@ -188,12 +188,12 @@ def _detect_python_version(runtime: ContainerRuntime, image: str) -> str:
     Returns:
         Python version string (e.g., "3.11" or "3" if detection fails)
     """
-    result = runtime.run(
+    proc = runtime.run(
         image,
         "python3 -c 'import sys; print(f\"{sys.version_info.major}.{sys.version_info.minor}\")'",
     )
-    if result.returncode == 0:
-        return str(result.stdout.strip())
+    if proc.returncode == 0:
+        return str(proc.stdout.strip())
     return "3"
 
 
@@ -339,10 +339,10 @@ def _test_wheel_build(
         f"{pycmd} -m pip wheel --no-binary :all: '{pkg}' -w /tmp/wheels"
     )
 
-    result = runtime.run(image, cmd, timeout=180)
+    proc = runtime.run(image, cmd, timeout=180)
     findings: list[Finding] = []
 
-    if result.returncode == 0:
+    if proc.returncode == 0:
         findings.append(
             Finding(
                 severity=Severity.INFO,
@@ -351,7 +351,7 @@ def _test_wheel_build(
         )
         return findings, None
 
-    output = result.stdout + result.stderr
+    output = proc.stdout + proc.stderr
     missing_file = _extract_missing_file(output)
 
     if missing_file:
@@ -455,14 +455,14 @@ def _find_providing_package(
 
     # Try dnf provides inside the container (install dnf if needed)
     search = f"*/pkgconfig/{missing_file}.pc" if "." not in missing_file else f"*/{missing_file}"
-    result = runtime.run(
+    proc = runtime.run(
         image,
         f"(microdnf install -y dnf 2>/dev/null || true) && dnf provides '{search}' 2>/dev/null",
         timeout=120,
     )
-    if result.returncode == 0 and result.stdout.strip():
+    if proc.returncode == 0 and proc.stdout.strip():
         candidates: list[str] = []
-        for line in result.stdout.splitlines():
+        for line in proc.stdout.splitlines():
             line = line.strip()
             skip_prefixes = ("Last", "=", "Repo", "Matched", "Filename", "Provide")
             if not line or any(line.startswith(p) for p in skip_prefixes):
@@ -480,13 +480,13 @@ def _find_providing_package(
 
     # Try apt-file for Debian-based containers
     if not resolved_rpm:
-        result = runtime.run(
+        proc = runtime.run(
             image,
             f"apt-file search '{missing_file}' 2>/dev/null | head -1",
             timeout=60,
         )
-        if result.returncode == 0 and result.stdout.strip():
-            pkg = str(result.stdout.strip().split(":")[0])
+        if proc.returncode == 0 and proc.stdout.strip():
+            pkg = str(proc.stdout.strip().split(":")[0])
             if pkg:
                 resolved_rpm = pkg
 

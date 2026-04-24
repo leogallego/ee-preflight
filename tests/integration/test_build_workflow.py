@@ -2,12 +2,18 @@
 
 These tests verify that ee-preflight can trigger ansible-builder,
 respect --tag, skip on errors, and pass build args.
+
+NOTE: Several tests in this module mock subprocess.run and/or layer
+functions heavily, making them look like unit tests.  They live here
+because they exercise the full runner orchestration path (run -> layers
+-> _run_build), not individual layers in isolation.  True integration
+tests that invoke real ansible-builder are gated by infrastructure
+availability and marked separately.
 """
 
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 from pathlib import Path
 from textwrap import dedent
@@ -15,8 +21,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ee_preflight.runner import _run_build, run
 from ee_preflight.models import EEDefinition, Finding, LayerResult, Severity
+from ee_preflight.runner import _run_build, run
 
 
 @pytest.mark.integration

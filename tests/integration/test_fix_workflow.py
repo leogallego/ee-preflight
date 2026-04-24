@@ -14,7 +14,6 @@ import pytest
 from ee_preflight.ee_parser import parse_ee
 from ee_preflight.fixer import apply_fixes
 from ee_preflight.models import Finding, Severity
-from ee_preflight.runner import run
 
 
 @pytest.mark.integration
@@ -177,7 +176,14 @@ class TestFixWorkflowBindep:
 
 @pytest.mark.integration
 class TestFixWorkflowPython:
-    """Test --fix for Python dependencies (requirements.txt)."""
+    """Test --fix for Python dependencies (requirements.txt).
+
+    NOTE: These tests call the private ``_add_python_deps`` function directly
+    because ``apply_fixes`` does not yet route any findings to Python-dep
+    fixes (no layer currently emits Python-specific fix suggestions).
+    Once a layer starts producing such suggestions, these tests should be
+    migrated to exercise the public ``apply_fixes`` entry point instead.
+    """
 
     def test_fix_creates_requirements_txt(self, tmp_path: Path):
         """When no requirements.txt exists, --fix creates it (future use case)."""
@@ -197,8 +203,7 @@ class TestFixWorkflowPython:
 
         ee = parse_ee(ee_yml)
 
-        # Use the internal _add_python_deps for testing since no layer currently
-        # produces Python fix suggestions
+        # _add_python_deps is private; see class docstring for rationale.
         from ee_preflight.fixer import _add_python_deps
 
         changes: list[str] = []
@@ -231,6 +236,7 @@ class TestFixWorkflowPython:
 
         ee = parse_ee(ee_yml)
 
+        # _add_python_deps is private; see class docstring for rationale.
         from ee_preflight.fixer import _add_python_deps
 
         changes: list[str] = []
@@ -262,6 +268,7 @@ class TestFixWorkflowPython:
 
         ee = parse_ee(ee_yml)
 
+        # _add_python_deps is private; see class docstring for rationale.
         from ee_preflight.fixer import _add_python_deps
 
         # First fix
@@ -351,7 +358,7 @@ class TestFixWorkflowMixedFormats:
             ),
         ]
 
-        changes = apply_fixes(ee, findings)
+        apply_fixes(ee, findings)
 
         ee_content = ee_yml.read_text()
         # Comments should be preserved

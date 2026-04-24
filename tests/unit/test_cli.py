@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ee_preflight.cli import _output_json, _output_human, main
+from ee_preflight.cli import _output_human, _output_json, main
 from ee_preflight.models import Finding, LayerResult, Severity
 
 
@@ -164,6 +164,25 @@ class TestOutputHuman:
         captured = capsys.readouterr()
         assert "All files found" not in captured.out
 
+    def test_output_human_error_count(self, capsys):
+        """Test that the summary shows the exact error and warning counts."""
+        results = [
+            LayerResult(
+                name="prechecks",
+                status="fail",
+                findings=[
+                    Finding(severity=Severity.ERROR, message="Missing file A"),
+                    Finding(severity=Severity.ERROR, message="Missing file B"),
+                    Finding(severity=Severity.WARNING, message="Deprecated format"),
+                ],
+            ),
+        ]
+
+        _output_human(Path("/fake/execution-environment.yml"), results, verbose=False)
+
+        captured = capsys.readouterr()
+        assert "2 error(s), 1 warning(s)" in captured.out
+
     def test_output_human_skipped_layer(self, capsys):
         """Test output for skipped layers."""
         results = [
@@ -194,9 +213,8 @@ class TestMain:
 
         mock_run.return_value = [LayerResult(name="prechecks", status="pass")]
 
-        with patch.object(sys, "argv", ["ee-preflight", str(ee_yml)]):
-            with pytest.raises(SystemExit) as exc_info:
-                main()
+        with patch.object(sys, "argv", ["ee-preflight", str(ee_yml)]), pytest.raises(SystemExit) as exc_info:
+            main()
 
         assert exc_info.value.code == 0
         mock_run.assert_called_once()
@@ -209,9 +227,8 @@ class TestMain:
 
         mock_run.return_value = [LayerResult(name="prechecks", status="pass")]
 
-        with patch.object(sys, "argv", ["ee-preflight", str(ee_yml), "--fix"]):
-            with pytest.raises(SystemExit) as exc_info:
-                main()
+        with patch.object(sys, "argv", ["ee-preflight", str(ee_yml), "--fix"]), pytest.raises(SystemExit) as exc_info:
+            main()
 
         assert exc_info.value.code == 0
         assert mock_run.call_args.kwargs["fix"] is True
@@ -224,9 +241,8 @@ class TestMain:
 
         mock_run.return_value = [LayerResult(name="prechecks", status="pass")]
 
-        with patch.object(sys, "argv", ["ee-preflight", str(ee_yml), "--build"]):
-            with pytest.raises(SystemExit) as exc_info:
-                main()
+        with patch.object(sys, "argv", ["ee-preflight", str(ee_yml), "--build"]), pytest.raises(SystemExit) as exc_info:
+            main()
 
         assert exc_info.value.code == 0
         assert mock_run.call_args.kwargs["build"] is True
@@ -241,9 +257,8 @@ class TestMain:
 
         with patch.object(
             sys, "argv", ["ee-preflight", str(ee_yml), "--build", "--tag", "my-ee:v1.0"]
-        ):
-            with pytest.raises(SystemExit) as exc_info:
-                main()
+        ), pytest.raises(SystemExit) as exc_info:
+            main()
 
         assert exc_info.value.code == 0
         assert mock_run.call_args.kwargs["tag"] == "my-ee:v1.0"
@@ -256,9 +271,11 @@ class TestMain:
 
         mock_run.return_value = [LayerResult(name="prechecks", status="pass")]
 
-        with patch.object(sys, "argv", ["ee-preflight", str(ee_yml), "--container-test"]):
-            with pytest.raises(SystemExit) as exc_info:
-                main()
+        with (
+            patch.object(sys, "argv", ["ee-preflight", str(ee_yml), "--container-test"]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
 
         assert exc_info.value.code == 0
         assert mock_run.call_args.kwargs["container_test"] is True
@@ -275,9 +292,8 @@ class TestMain:
 
         with patch.object(
             sys, "argv", ["ee-preflight", str(ee_yml), "--venv", str(venv_path)]
-        ):
-            with pytest.raises(SystemExit) as exc_info:
-                main()
+        ), pytest.raises(SystemExit) as exc_info:
+            main()
 
         assert exc_info.value.code == 0
         assert mock_run.call_args.kwargs["venv_path"] == venv_path
@@ -290,9 +306,11 @@ class TestMain:
 
         mock_run.return_value = [LayerResult(name="prechecks", status="pass")]
 
-        with patch.object(sys, "argv", ["ee-preflight", str(ee_yml), "--keep-venv"]):
-            with pytest.raises(SystemExit) as exc_info:
-                main()
+        with (
+            patch.object(sys, "argv", ["ee-preflight", str(ee_yml), "--keep-venv"]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
 
         assert exc_info.value.code == 0
         assert mock_run.call_args.kwargs["keep_venv"] is True
@@ -305,9 +323,8 @@ class TestMain:
 
         mock_run.return_value = [LayerResult(name="prechecks", status="pass")]
 
-        with patch.object(sys, "argv", ["ee-preflight", str(ee_yml), "--json"]):
-            with pytest.raises(SystemExit) as exc_info:
-                main()
+        with patch.object(sys, "argv", ["ee-preflight", str(ee_yml), "--json"]), pytest.raises(SystemExit) as exc_info:
+            main()
 
         assert exc_info.value.code == 0
         captured = capsys.readouterr()
@@ -329,17 +346,15 @@ class TestMain:
             )
         ]
 
-        with patch.object(sys, "argv", ["ee-preflight", str(ee_yml)]):
-            with pytest.raises(SystemExit) as exc_info:
-                main()
+        with patch.object(sys, "argv", ["ee-preflight", str(ee_yml)]), pytest.raises(SystemExit) as exc_info:
+            main()
 
         assert exc_info.value.code == 1
 
     def test_main_missing_ee_file(self, capsys):
         """Test main with non-existent EE file."""
-        with patch.object(sys, "argv", ["ee-preflight", "/fake/missing.yml"]):
-            with pytest.raises(SystemExit) as exc_info:
-                main()
+        with patch.object(sys, "argv", ["ee-preflight", "/fake/missing.yml"]), pytest.raises(SystemExit) as exc_info:
+            main()
 
         assert exc_info.value.code == 1
         captured = capsys.readouterr()

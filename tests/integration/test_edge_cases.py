@@ -7,6 +7,11 @@ These tests cover:
 - Non-standard Python versions
 - Mixed dependency formats
 - Transient errors
+
+NOTE: Several tests in this module mock layer functions heavily, making
+them look like unit tests.  They live here because they test the full
+runner orchestration path (e.g. venv lifecycle, layer-skip logic) rather
+than individual layer behaviour in isolation.
 """
 
 from __future__ import annotations
@@ -18,8 +23,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from ee_preflight.ee_parser import parse_ee
+from ee_preflight.models import LayerResult, Severity
 from ee_preflight.runner import run
-from ee_preflight.models import LayerResult, Finding, Severity
 
 
 @pytest.mark.integration
@@ -449,8 +454,10 @@ class TestVenvManagement:
     @patch("ee_preflight.layers.galaxy.validate")
     @patch("ee_preflight.layers.python_deps.validate")
     @patch("ee_preflight.layers.system_deps.validate")
+    @patch("ee_preflight.runner.shutil.rmtree")
     def test_venv_cleanup_on_success(
         self,
+        mock_rmtree: MagicMock,
         mock_system: MagicMock,
         mock_python: MagicMock,
         mock_galaxy: MagicMock,
@@ -475,8 +482,11 @@ class TestVenvManagement:
 
         results = run(ee_path=ee_yml)
 
-        # Venv should be cleaned up (tested via coverage of cleanup code)
         assert len(results) > 0
+        # Verify shutil.rmtree was called to clean up the temp venv
+        mock_rmtree.assert_called_once()
+        cleaned_path = mock_rmtree.call_args[0][0]
+        assert "ee-preflight-" in str(cleaned_path)
 
     @patch("ee_preflight.layers.prechecks.validate")
     @patch("ee_preflight.layers.galaxy.validate")

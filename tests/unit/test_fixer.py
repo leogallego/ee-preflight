@@ -100,6 +100,53 @@ class TestApplyFixes:
         assert changes == []
 
 
+class TestPkgNameNormalization:
+    """Test _pkg_name normalization (hyphen/underscore equivalence)."""
+
+    def test_fix_handles_hyphenated_package_names(self, tmp_path: Path):
+        """Verify that pip-tools (existing) matches pip_tools (new)
+        and doesn't create a duplicate."""
+        ee_yml = tmp_path / "execution-environment.yml"
+        ee_yml.write_text(
+            dedent("""\
+                version: 3
+                images:
+                  base_image:
+                    name: registry.redhat.io/ee-minimal-rhel9:latest
+                dependencies:
+                  galaxy: requirements.yml
+                  python: requirements.txt
+            """)
+        )
+        reqs = tmp_path / "requirements.yml"
+        reqs.write_text("collections:\n  - name: ansible.posix\n")
+
+        reqs_txt = tmp_path / "requirements.txt"
+        reqs_txt.write_text("pip-tools\n")
+
+        ee = parse_ee(ee_yml)
+
+        from ee_preflight.fixer import _add_python_deps
+
+        changes: list[str] = []
+        # pip_tools (underscore) should match existing pip-tools (hyphen)
+        _add_python_deps(ee, ["pip_tools"], changes)
+
+        content = reqs_txt.read_text()
+        # Should not have added a duplicate entry
+        assert content.count("pip") == 1
+        assert len(changes) == 0
+
+    def test_normalization_strips_version_specifiers(self):
+        """Verify _pkg_name strips version specifiers before normalizing."""
+        from ee_preflight.fixer import _pkg_name
+
+        assert _pkg_name("pip-tools>=7.0") == "pip_tools"
+        assert _pkg_name("pip_tools>=7.0") == "pip_tools"
+        assert _pkg_name("PyYAML") == "pyyaml"
+        assert _pkg_name("requests[security]>=2.28") == "requests"
+
+
 class TestExtractQuotedEntries:
     def test_extract_quoted_entries(self):
         findings = [

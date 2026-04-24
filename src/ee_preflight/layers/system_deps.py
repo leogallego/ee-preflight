@@ -365,6 +365,7 @@ def _test_wheel_build(
                     message=f"{pkg_name} failed to build: {missing_file} not found",
                     fix=f"Add '{pkg_provider}' to bindep.txt",
                     source=f"required by {pkg_name}",
+                    code="missing_system_dep",
                 )
             )
             return findings, pkg_provider
@@ -375,6 +376,7 @@ def _test_wheel_build(
                     message=f"{pkg_name} failed to build: {missing_file} not found",
                     fix=f"Find the package providing {missing_file} for your base image and add it to bindep.txt",
                     source=f"required by {pkg_name}",
+                    code="missing_system_dep",
                 )
             )
             return findings, None
@@ -384,6 +386,7 @@ def _test_wheel_build(
                 severity=Severity.ERROR,
                 message=f"{pkg_name} failed to build",
                 source=f"pip wheel output: {output[-300:]}",
+                code="build_failure",
             )
         )
         return findings, None

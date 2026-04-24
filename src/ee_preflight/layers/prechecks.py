@@ -35,7 +35,7 @@ def validate(ctx: ValidateContext) -> LayerResult:
     _check_build_args(ctx, findings)
     _check_base_image(ctx, findings)
 
-    has_missing_files = any(f.severity == Severity.ERROR and "not found" in f.message for f in findings)
+    has_missing_files = any(f.code == "missing_file" for f in findings)
     status: LayerStatus = "fail" if has_missing_files else "pass"
 
     return LayerResult(name="prechecks", status=status, findings=findings)
@@ -104,6 +104,7 @@ def _check_file_refs(ctx: ValidateContext, findings: list[Finding]) -> None:
                     severity=Severity.ERROR,
                     message=f"Dependency file not found: {dep_ref.file_path.name}",
                     fix=f"Create {dep_ref.file_path.name} in {ctx.ee.ee_dir}",
+                    code="missing_file",
                 )
             )
 

@@ -288,6 +288,7 @@ def _parse_collection_errors(output: str) -> list[Finding]:
                     Finding(
                         severity=Severity.ERROR,
                         message=f"Collection conflict: {line[2:]}",
+                        code="collection_conflict",
                     )
                 )
 
@@ -297,6 +298,7 @@ def _parse_collection_errors(output: str) -> list[Finding]:
                 severity=Severity.ERROR,
                 message="Galaxy/Automation Hub authentication failed",
                 fix="Check AH_TOKEN or ansible.cfg credentials",
+                code="auth_failure",
             )
         )
 

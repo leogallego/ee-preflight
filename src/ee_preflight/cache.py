@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -24,12 +25,11 @@ class CacheEntry:
         """Check if cache entry is older than TTL."""
         try:
             entry_time = datetime.fromisoformat(self.timestamp.replace("Z", "+00:00"))
-            now = datetime.now(UTC)
-            age = now - entry_time
-            return age > timedelta(days=ttl_days)
         except (ValueError, AttributeError):
             # Invalid timestamp format, consider expired
             return True
+        now = datetime.now(UTC)
+        return (now - entry_time) > timedelta(days=ttl_days)
 
     def to_dict(self) -> dict:
         return {
@@ -73,17 +73,19 @@ class DependencyCache:
 
         try:
             data = json.loads(self.cache_path.read_text())
-            if data.get("cache_version") != CACHE_VERSION:
-                # Cache version mismatch, ignore old cache
-                return
+        except (json.JSONDecodeError, OSError):
+            return
 
-            for entry_data in data.get("entries", []):
+        if data.get("cache_version") != CACHE_VERSION:
+            return
+
+        for entry_data in data.get("entries", []):
+            try:
                 entry = CacheEntry.from_dict(entry_data)
-                if not entry.is_expired(self.ttl_days):
-                    self._entries.append(entry)
-        except (json.JSONDecodeError, KeyError, TypeError):
-            # Corrupted cache, ignore and start fresh
-            pass
+            except (KeyError, TypeError):
+                continue
+            if not entry.is_expired(self.ttl_days):
+                self._entries.append(entry)
 
     def get(
         self,
@@ -91,6 +93,7 @@ class DependencyCache:
         python_package: str,
         missing_file: str,
         platform: str,
+        python_version: str = "",
     ) -> str | None:
         """
         Retrieve cached RPM for the given key.
@@ -104,6 +107,7 @@ class DependencyCache:
                 and entry.python_package == python_package
                 and entry.missing_file == missing_file
                 and entry.platform == platform
+                and entry.python_version == python_version
             ):
                 return entry.resolved_rpm
 
@@ -130,6 +134,7 @@ class DependencyCache:
                 and e.python_package == python_package
                 and e.missing_file == missing_file
                 and e.platform == platform
+                and e.python_version == python_version
             )
         ]
 
@@ -159,7 +164,7 @@ class DependencyCache:
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Write atomically using temp file + rename
-        temp_path = self.cache_path.with_suffix(".tmp")
+        temp_path = self.cache_path.with_suffix(f".{os.getpid()}.tmp")
         temp_path.write_text(json.dumps(data, indent=2))
         temp_path.replace(self.cache_path)
 

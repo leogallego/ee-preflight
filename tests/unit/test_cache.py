@@ -124,6 +124,7 @@ class TestDependencyCache:
             python_package="gssapi",
             missing_file="krb5-config",
             platform="rpm",
+            python_version="3.11",
         )
 
         assert result is None
@@ -146,6 +147,7 @@ class TestDependencyCache:
             python_package="gssapi",
             missing_file="krb5-config",
             platform="rpm",
+            python_version="3.11",
         )
 
         assert result == "krb5-devel"
@@ -169,6 +171,7 @@ class TestDependencyCache:
             python_package="unknown",
             missing_file="missing.h",
             platform="rpm",
+            python_version="3.11",
         )
 
         assert result is None
@@ -194,6 +197,7 @@ class TestDependencyCache:
             python_package="lxml",
             missing_file="libxml2.h",
             platform="rpm",
+            python_version="3.11",
         )
 
         assert result == "libxml2-devel"
@@ -240,14 +244,14 @@ class TestDependencyCache:
             python_version="3.11",
         )
 
-        # Update with new value
+        # Update with new value (same key including python_version)
         cache.set(
             base_image="test:latest",
             python_package="gssapi",
             missing_file="krb5-config",
             resolved_rpm="krb5-libs",
             platform="rpm",
-            python_version="3.12",
+            python_version="3.11",
         )
 
         result = cache.get(
@@ -255,6 +259,7 @@ class TestDependencyCache:
             python_package="gssapi",
             missing_file="krb5-config",
             platform="rpm",
+            python_version="3.11",
         )
 
         assert result == "krb5-libs"
@@ -297,17 +302,20 @@ class TestDependencyCache:
 
         # Verify all entries are distinct and retrievable
         assert (
-            cache.get("test:latest", "gssapi", "krb5-config", "rpm") == "krb5-devel"
+            cache.get("test:latest", "gssapi", "krb5-config", "rpm", "3.11")
+            == "krb5-devel"
         )
         assert (
-            cache.get("test:latest", "lxml", "libxml2.h", "rpm") == "libxml2-devel"
+            cache.get("test:latest", "lxml", "libxml2.h", "rpm", "3.11")
+            == "libxml2-devel"
         )
         assert (
-            cache.get("ubuntu:latest", "lxml", "libxml2.h", "dpkg") == "libxml2-dev"
+            cache.get("ubuntu:latest", "lxml", "libxml2.h", "dpkg", "3.10")
+            == "libxml2-dev"
         )
 
         # Verify no cross-contamination
-        assert cache.get("test:latest", "lxml", "libxml2.h", "dpkg") is None
+        assert cache.get("test:latest", "lxml", "libxml2.h", "dpkg", "3.11") is None
 
     def test_cache_clear(self, tmp_path: Path):
         """Test clearing the cache."""
@@ -329,7 +337,7 @@ class TestDependencyCache:
 
         assert not cache_file.exists()
         assert (
-            cache.get("test:latest", "gssapi", "krb5-config", "rpm") is None
+            cache.get("test:latest", "gssapi", "krb5-config", "rpm", "3.11") is None
         )
 
     def test_cache_ignores_expired_entries(self, tmp_path: Path):
@@ -361,6 +369,7 @@ class TestDependencyCache:
             python_package="gssapi",
             missing_file="krb5-config",
             platform="rpm",
+            python_version="3.11",
         )
 
         assert result is None
@@ -393,6 +402,7 @@ class TestDependencyCache:
             python_package="gssapi",
             missing_file="krb5-config",
             platform="rpm",
+            python_version="3.11",
         )
 
         assert result is None
@@ -409,9 +419,91 @@ class TestDependencyCache:
             python_package="gssapi",
             missing_file="krb5-config",
             platform="rpm",
+            python_version="3.11",
         )
 
         assert result is None
+
+    def test_cache_corrupt_entry_does_not_discard_valid_entries(self, tmp_path: Path):
+        """Test that one corrupt entry doesn't discard the entire cache."""
+        cache_file = tmp_path / ".ee-preflight-cache.json"
+
+        data = {
+            "cache_version": CACHE_VERSION,
+            "entries": [
+                {
+                    "base_image": "test:latest",
+                    "python_package": "gssapi",
+                    "missing_file": "krb5-config",
+                    "resolved_rpm": "krb5-devel",
+                    "platform": "rpm",
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "python_version": "3.11",
+                },
+                {
+                    # Corrupt entry: missing required fields
+                    "base_image": "test:latest",
+                },
+                {
+                    "base_image": "test:latest",
+                    "python_package": "lxml",
+                    "missing_file": "libxml2.h",
+                    "resolved_rpm": "libxml2-devel",
+                    "platform": "rpm",
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "python_version": "3.11",
+                },
+            ],
+        }
+        cache_file.write_text(json.dumps(data))
+
+        cache = DependencyCache(cache_path=cache_file, ttl_days=30)
+
+        # Valid entries should still be accessible
+        assert (
+            cache.get("test:latest", "gssapi", "krb5-config", "rpm", "3.11")
+            == "krb5-devel"
+        )
+        assert (
+            cache.get("test:latest", "lxml", "libxml2.h", "rpm", "3.11")
+            == "libxml2-devel"
+        )
+
+    def test_cache_python_version_differentiates_entries(self, tmp_path: Path):
+        """Test that different python_version values yield different cache hits."""
+        cache_file = tmp_path / ".ee-preflight-cache.json"
+        cache = DependencyCache(cache_path=cache_file, ttl_days=30)
+
+        cache.set(
+            base_image="test:latest",
+            python_package="gssapi",
+            missing_file="Python.h",
+            resolved_rpm="python3.11-devel",
+            platform="rpm",
+            python_version="3.11",
+        )
+
+        cache.set(
+            base_image="test:latest",
+            python_package="gssapi",
+            missing_file="Python.h",
+            resolved_rpm="python3.12-devel",
+            platform="rpm",
+            python_version="3.12",
+        )
+
+        assert (
+            cache.get("test:latest", "gssapi", "Python.h", "rpm", "3.11")
+            == "python3.11-devel"
+        )
+        assert (
+            cache.get("test:latest", "gssapi", "Python.h", "rpm", "3.12")
+            == "python3.12-devel"
+        )
+        # No match without python_version
+        assert (
+            cache.get("test:latest", "gssapi", "Python.h", "rpm") is None
+        )
 
     def test_cache_default_path(self, tmp_path: Path, monkeypatch):
         """Test that cache uses default path when none specified."""

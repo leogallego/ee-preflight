@@ -324,6 +324,7 @@ def _find_providing_package(
             python_package=pkg_name,
             missing_file=missing_file,
             platform=platform,
+            python_version=python_version,
         )
         if cached is not None:
             return cached

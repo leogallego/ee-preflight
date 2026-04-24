@@ -282,16 +282,52 @@ def _parse_collection_errors(output: str) -> list[Finding]:
     findings: list[Finding] = []
 
     if "Could not satisfy" in output or "Failed to resolve" in output:
-        for line in output.splitlines():
-            line = line.strip()
-            if line.startswith("*"):
-                findings.append(
-                    Finding(
-                        severity=Severity.ERROR,
-                        message=f"Collection conflict: {line[2:]}",
-                        code="collection_conflict",
+        lines = output.splitlines()
+        hint = ""
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("Hint:"):
+                # Trim the noisy RequirementInformation repr from the hint
+                hint_text = stripped
+                req_idx = hint_text.find(": [RequirementInformation")
+                if req_idx > 0:
+                    hint_text = hint_text[:req_idx]
+                hint = hint_text
+                break
+
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("*"):
+                detail = stripped[2:]
+                is_not_found = "direct request" in detail and "dependency of" not in detail
+                if is_not_found:
+                    col_name = detail.split(":")[0] if ":" in detail else detail
+                    needs_ah = col_name.startswith(("ansible.", "redhat."))
+                    if needs_ah and not os.environ.get("AH_TOKEN"):
+                        fix = (
+                            f"'{col_name}' is on Automation Hub, not public Galaxy. "
+                            f"Set AH_TOKEN to authenticate."
+                        )
+                    elif hint:
+                        fix = hint
+                    else:
+                        fix = None
+                    findings.append(
+                        Finding(
+                            severity=Severity.ERROR,
+                            message=f"Collection not found: {detail}",
+                            fix=fix,
+                            code="collection_not_found",
+                        )
                     )
-                )
+                else:
+                    findings.append(
+                        Finding(
+                            severity=Severity.ERROR,
+                            message=f"Collection conflict: {detail}",
+                            code="collection_conflict",
+                        )
+                    )
 
     if any(p in output for p in ("HTTP Error 400", "Unauthorized", "HTTP Error 401")):
         findings.append(

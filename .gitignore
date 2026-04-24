@@ -11,3 +11,4 @@ tmp/
 .venv/
 *.egg
 .ee-preflight-cache.json
+tests/test-ee/

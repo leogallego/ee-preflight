@@ -21,6 +21,7 @@ from pathlib import Path
 import yaml
 
 from ..models import DepFormat, Finding, LayerResult, Severity, ValidateContext
+from .system_deps import MISSING_FILE_PATTERNS
 
 # Network errors that should trigger retry with backoff
 TRANSIENT_PATTERNS = [
@@ -135,11 +136,11 @@ def validate(ctx: ValidateContext) -> tuple[LayerResult, list[Finding], set[str]
             continue
 
         # Separate collection errors from Python build failures
-        collection_errors = _parse_collection_errors(output)
+        collection_findings = _parse_collection_errors(output)
         python_build_findings, failed_pkgs = _parse_python_build_errors(output)
 
-        if collection_errors:
-            findings.extend(collection_errors)
+        if collection_findings:
+            findings.extend(collection_findings)
             return LayerResult(name="galaxy", status="fail", findings=findings), [], set()
 
         if python_build_findings:
@@ -336,16 +337,8 @@ def _parse_python_build_errors(output: str) -> tuple[list[Finding], set[str]]:
         for match in re.finditer(pattern, output):
             failed_pkgs.add(match.group(1).lower().replace("-", "_"))
 
-    # Patterns for identifying missing files/dependencies
-    missing_file_patterns = [
-        (r"fatal error: (\S+\.h): No such file or directory", "header"),
-        (r"(\S+): command not found", "command"),
-        (r"Package '(\S+)' not found", "pkgconfig"),
-        (r"Package (\S+) was not found in the pkg-config search path", "pkgconfig"),
-    ]
-
     seen: set[str] = set()
-    for pattern, kind in missing_file_patterns:
+    for pattern, kind in MISSING_FILE_PATTERNS:
         for match in re.finditer(pattern, output):
             missing = match.group(1)
             if missing in seen:

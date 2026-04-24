@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 
-from ..models import DepFormat, Finding, LayerResult, LayerStatus, Severity, ValidateContext
+from ..models import DepFormat, Finding, LayerResult, Severity, ValidateContext, pkg_name
 
 ADE_ENV_DIR = ".ansible-dev-environment"
 DISCOVERED_PYTHON = "discovered_requirements.txt"
@@ -144,11 +144,11 @@ def _diff_python_deps(
         findings: List to append findings to
     """
     declared = _read_declared_python(ctx)
-    declared_names = {_pkg_name(d) for d in declared}
+    declared_names = {pkg_name(d) for d in declared}
 
     seen: set[str] = set()
     for entry in discovered:
-        name = _pkg_name(entry["dep"])
+        name = pkg_name(entry["dep"])
         if not name or name in declared_names or name in seen:
             continue
         seen.add(name)
@@ -315,20 +315,3 @@ def _read_declared_system(ctx: ValidateContext) -> list[str]:
     if ctx.ee.system.format == DepFormat.INLINE:
         return [str(e) for e in ctx.ee.system.entries]
     return []
-
-
-def _pkg_name(spec: str) -> str:
-    """Extract package name from Python requirement spec.
-
-    Strips version constraints, extras, and environment markers.
-    Normalizes hyphens to underscores for comparison.
-
-    Args:
-        spec: Python requirement spec (e.g., "pkg>=1.0[extra];python_version>'3.8'")
-
-    Returns:
-        Normalized package name (e.g., "pkg")
-    """
-    for sep in (">=", "<=", "==", "!=", ">", "<", "[", ";"):
-        spec = spec.split(sep)[0]
-    return spec.strip().lower().replace("-", "_")

@@ -225,4 +225,127 @@ Since `gh` CLI is not available, create PRs manually via GitHub web interface:
 5. Click "Create pull request"
 6. Do not merge without approval
 
-All three branches have been pushed to origin and are ready for PR creation.
+All four branches have been pushed to origin and are ready for PR creation.
+
+---
+
+## PR #4: Phase 1.4 - Documentation & PyPI Packaging
+
+**Branch:** `phase1.4-docs`  
+**Base:** `main`
+
+### Title
+Phase 1.4: Documentation & PyPI Packaging
+
+### Description
+
+Complete documentation overhaul and PyPI release preparation for v0.2.0.
+
+#### Changes
+
+**Code Documentation (10 files):**
+- Added module-level docstrings to all Python files
+- Added class and function docstrings for all public APIs (28/28 coverage)
+- Added inline comments for complex logic (transient retry, platform matching, cumulative retry)
+- Google/NumPy docstring style throughout
+
+**User Documentation:**
+- `CONTRIBUTING.md` - Developer setup, testing guide, code style, PR process (410 lines)
+- `CHANGELOG.md` - v0.1.0 release notes with semantic versioning guide (164 lines)
+- `README.md` - Added comprehensive troubleshooting section with 8 categories (~350 new lines)
+- `RELEASING.md` - Step-by-step release process and automation guide (450 lines)
+
+**Example EEs (examples/):**
+- `examples/minimal/` - Basic EE for learning ee-preflight
+- `examples/standard/` - General-purpose automation with common collections
+- `examples/hub/` - Enterprise setup with Automation Hub certified collections
+- `examples/README.md` - Overview, comparison table, usage patterns
+
+**PyPI Packaging:**
+- Enhanced `pyproject.toml` with PyPI-optimized keywords and classifiers
+- `.github/workflows/release.yml` - Automated PyPI publishing with trusted publishing (OIDC)
+- `.github/workflows/ci.yml` - Added build verification and install testing jobs
+- README badges (PyPI version, Python versions, license, CI status)
+
+**Development Containers:**
+- `.devcontainer/ansible/` - Ansible development environment
+- `.devcontainer/claude/` - Claude Code development environment
+
+#### Features
+
+**Documentation:**
+- 100% docstring coverage of public APIs
+- Troubleshooting guide covers authentication, container runtime, version conflicts, build failures, cache issues
+- 3 complete example EEs with READMEs
+- Contributor guide with development setup and testing instructions
+
+**PyPI Release Automation:**
+- No API tokens required (uses PyPI trusted publishing)
+- Automatic versioning from git tags
+- GitHub release creation with changelog and checksums
+- Build verification on every commit
+
+#### One-Time Setup Required
+
+Before first PyPI release:
+1. Configure PyPI trusted publishing (see RELEASING.md)
+2. Create GitHub "release" environment
+
+#### Ready for v0.2.0
+
+When ready to release:
+```bash
+# Update version in pyproject.toml to 0.2.0
+# Commit and push
+git tag -a v0.2.0 -m "Release v0.2.0"
+git push origin v0.2.0
+# Workflow automatically builds, publishes to PyPI, creates GitHub release
+```
+
+#### Testing
+
+Documentation build verification:
+```bash
+# Verify package builds correctly
+python -m build
+twine check dist/*
+
+# Install from built wheel
+pip install dist/ee_preflight-*.whl
+
+# Run examples
+ee-preflight examples/minimal/execution-environment.yml
+ee-preflight examples/standard/execution-environment.yml --container-test
+```
+
+#### Acceptance Criteria
+
+- [x] All public functions have docstrings
+- [x] CONTRIBUTING.md and CHANGELOG.md exist
+- [x] examples/ directory with 3+ sample EEs
+- [x] README has troubleshooting section
+- [x] PyPI packaging configured
+- [x] GitHub release automation configured
+- [x] All documentation is clear and actionable
+
+#### Related
+
+Part of [ROADMAP.md Phase 1.4](docs/ROADMAP.md#14-documentation--packaging)
+
+#### Files Changed
+
+- 44 files changed, 4,512 insertions(+), 17 deletions(-)
+- All changes are documentation and packaging (no code logic changes)
+
+---
+
+## Merge Order Recommendation
+
+For cleanest integration, merge in this order:
+
+1. **Phase 1.4 (docs)** - Pure documentation, no conflicts
+2. **Phase 1.1 (cache)** - Independent feature
+3. **Phase 1.2 (docker)** - Independent feature
+4. **Phase 1.3 (tests)** - Tests depend on 1.1 and 1.2 features
+
+Or merge all together after reviewing each independently.

@@ -183,3 +183,10 @@ class ValidateContext:
     use_cache: bool = True
     cache_path: Path | None = None
     runtime: str | None = None
+
+
+def pkg_name(spec: str) -> str:
+    """Normalize a Python package specifier to a comparable name."""
+    for sep in (">=", "<=", "==", "!=", ">", "<", "[", ";"):
+        spec = spec.split(sep)[0]
+    return spec.strip().lower().replace("-", "_")

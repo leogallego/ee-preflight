@@ -15,7 +15,7 @@ import re
 
 import yaml
 
-from .models import DepFormat, EEDefinition, Finding
+from .models import DepFormat, EEDefinition, Finding, pkg_name
 
 
 def apply_fixes(ee: EEDefinition, findings: list[Finding]) -> list[str]:
@@ -126,9 +126,9 @@ def _add_python_deps(ee: EEDefinition, entries: list[str], changes: list[str]) -
     if ee.python and ee.python.format == DepFormat.FILE and ee.python.file_path:
         existing = ee.python.file_path.read_text() if ee.python.file_path.exists() else ""
         existing_names = {
-            _pkg_name(line) for line in existing.splitlines() if line.strip() and not line.startswith("#")
+            pkg_name(line) for line in existing.splitlines() if line.strip() and not line.startswith("#")
         }
-        new_entries = [e for e in entries if _pkg_name(e) not in existing_names]
+        new_entries = [e for e in entries if pkg_name(e) not in existing_names]
         if new_entries:
             with open(ee.python.file_path, "a") as f:
                 for entry in new_entries:
@@ -312,20 +312,3 @@ def _add_inline_deps(ee: EEDefinition, dep_type: str, entries: list[str], change
 
     ee.path.write_text("".join(lines))
     changes.append(f"Added to {ee.path.name} [{dep_type}]: {', '.join(new_entries)}")
-
-
-def _pkg_name(spec: str) -> str:
-    """Extract the package name from a Python requirement specifier.
-
-    Strips version constraints, extras, and environment markers to get the
-    base package name. Normalizes hyphens to underscores for comparison.
-
-    Args:
-        spec: Python requirement spec (e.g., "pkg>=1.0[extra];python_version>'3.8'")
-
-    Returns:
-        Normalized package name (e.g., "pkg")
-    """
-    for sep in (">=", "<=", "==", "!=", ">", "<", "[", ";"):
-        spec = spec.split(sep)[0]
-    return spec.strip().lower().replace("-", "_")

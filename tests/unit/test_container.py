@@ -18,7 +18,7 @@ class TestContainerRuntime:
             # Both available: podman should be chosen
             mock_which.side_effect = lambda cmd: cmd in ("podman", "docker")
             runtime = ContainerRuntime()
-            assert runtime.cmd == "podman"
+            assert runtime.engine == "podman"
 
     def test_auto_detect_docker_fallback(self):
         """Auto-detection should fall back to docker if podman unavailable."""
@@ -26,7 +26,7 @@ class TestContainerRuntime:
             # Only docker available
             mock_which.side_effect = lambda cmd: cmd == "docker"
             runtime = ContainerRuntime()
-            assert runtime.cmd == "docker"
+            assert runtime.engine == "docker"
 
     def test_auto_detect_no_runtime(self):
         """Auto-detection should fail when no runtime is available."""
@@ -42,14 +42,14 @@ class TestContainerRuntime:
         with patch("shutil.which") as mock_which:
             mock_which.return_value = "/usr/bin/podman"
             runtime = ContainerRuntime(runtime="podman")
-            assert runtime.cmd == "podman"
+            assert runtime.engine == "podman"
 
     def test_explicit_docker(self):
         """Explicit docker runtime should be used when available."""
         with patch("shutil.which") as mock_which:
             mock_which.return_value = "/usr/bin/docker"
             runtime = ContainerRuntime(runtime="docker")
-            assert runtime.cmd == "docker"
+            assert runtime.engine == "docker"
 
     def test_explicit_invalid_name(self):
         """Invalid runtime name should raise error."""
@@ -89,20 +89,6 @@ class TestContainerRuntime:
             mock_run.assert_called_once()
             args = mock_run.call_args[0][0]
             assert args == ["docker", "run", "--rm", "alpine:latest", "sh", "-c", "echo hello"]
-
-    def test_available_property_true(self):
-        """Available property should return True when runtime exists."""
-        with patch("shutil.which", return_value="/usr/bin/podman"):
-            runtime = ContainerRuntime()
-            assert runtime.available is True
-
-    def test_available_property_false(self):
-        """Available property should return False when no runtime exists."""
-        # Can't test this directly since __init__ would fail
-        # But we can test the _detect method behavior
-        with patch("shutil.which", return_value=None):
-            runtime = ContainerRuntime.__new__(ContainerRuntime)
-            assert runtime.available is False
 
     def test_pull_timeout(self):
         """Pull should have 300s timeout."""

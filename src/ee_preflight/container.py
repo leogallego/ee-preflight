@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from typing import Literal
 
 
 class ContainerRuntime:
-    def __init__(self, runtime: str | None = None) -> None:
-        self.cmd = self._detect(runtime)
+    def __init__(self, runtime: Literal["podman", "docker"] | None = None) -> None:
+        self.engine = self._detect(runtime)
 
-    def _detect(self, runtime: str | None = None) -> str:
+    def _detect(
+        self, runtime: Literal["podman", "docker"] | None = None
+    ) -> Literal["podman", "docker"]:
         """Detect or validate container runtime.
 
         Args:
@@ -37,26 +40,18 @@ class ContainerRuntime:
                 return cmd
         raise RuntimeError("No container runtime found. Install podman or docker for --container-test")
 
-    def pull(self, image: str) -> subprocess.CompletedProcess:
+    def pull(self, image: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            [self.cmd, "pull", image],
+            [self.engine, "pull", image],
             capture_output=True,
             text=True,
             timeout=300,
         )
 
-    def run(self, image: str, command: str, timeout: int = 300) -> subprocess.CompletedProcess:
+    def run(self, image: str, command: str, timeout: int = 300) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            [self.cmd, "run", "--rm", image, "sh", "-c", command],
+            [self.engine, "run", "--rm", image, "sh", "-c", command],
             capture_output=True,
             text=True,
             timeout=timeout,
         )
-
-    @property
-    def available(self) -> bool:
-        try:
-            self._detect()
-            return True
-        except RuntimeError:
-            return False

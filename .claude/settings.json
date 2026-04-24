@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//root/.claude/projects/**)",
+      "Bash(python3)",
+      "Bash(git commit -m ' *)",
+      "Bash(git add *)",
+      "Bash(pytest *)",
+      "Bash(ruff check *)",
+      "Bash(ruff format *)",
+      "Bash(mypy *)",
+      "Bash(pip install *)",
+      "Bash(pip list *)",
+      "Bash(python -m *)",
+      "Bash(ee-preflight *)",
+      "Bash(docker version)",
+      "Bash(docker ps *)",
+      "Bash(docker images *)",
+      "Bash(podman version)",
+      "Bash(podman ps *)",
+      "Bash(podman images *)",
+      "Bash(git push *)"
+    ],
+    "additionalDirectories": [
+      "/workspace/.claude"
+    ]
+  }
+}

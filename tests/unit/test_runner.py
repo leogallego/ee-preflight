@@ -239,6 +239,7 @@ class TestRun:
                 Finding(
                     severity=Severity.ERROR,
                     message="File not found: missing.yml",
+                    code="missing_file",
                 )
             ],
         )

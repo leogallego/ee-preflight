@@ -139,12 +139,12 @@ class TestPkgNameNormalization:
 
     def test_normalization_strips_version_specifiers(self):
         """Verify _pkg_name strips version specifiers before normalizing."""
-        from ee_preflight.fixer import _pkg_name
+        from ee_preflight.models import pkg_name
 
-        assert _pkg_name("pip-tools>=7.0") == "pip_tools"
-        assert _pkg_name("pip_tools>=7.0") == "pip_tools"
-        assert _pkg_name("PyYAML") == "pyyaml"
-        assert _pkg_name("requests[security]>=2.28") == "requests"
+        assert pkg_name("pip-tools>=7.0") == "pip_tools"
+        assert pkg_name("pip_tools>=7.0") == "pip_tools"
+        assert pkg_name("PyYAML") == "pyyaml"
+        assert pkg_name("requests[security]>=2.28") == "requests"
 
 
 class TestExtractQuotedEntries:

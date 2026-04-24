@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 
-from ..models import DepFormat, Finding, LayerResult, Severity, ValidateContext, pkg_name
+from ..models import DepFormat, Finding, LayerResult, LayerStatus, Severity, ValidateContext, pkg_name
 
 ADE_ENV_DIR = ".ansible-dev-environment"
 DISCOVERED_PYTHON = "discovered_requirements.txt"

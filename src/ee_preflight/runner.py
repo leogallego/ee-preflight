@@ -16,6 +16,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Literal
 
 from .ee_parser import parse_ee
 from .fixer import apply_fixes
@@ -31,7 +32,7 @@ def run(
     venv_path: Path | None = None,
     keep_venv: bool = False,
     container_test: bool = False,
-    runtime: str | None = None,
+    runtime: Literal["podman", "docker"] | None = None,
     verbose: bool = False,
     use_cache: bool = True,
     cache_path: Path | None = None,

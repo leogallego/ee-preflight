@@ -45,15 +45,19 @@ class Finding:
     message: str
     fix: str | None = None
     source: str | None = None
+    code: str | None = None
 
     def to_dict(self) -> dict[str, str | None]:
         """Convert to dictionary for JSON serialization."""
-        return {
+        d = {
             "severity": self.severity.value,
             "message": self.message,
             "fix": self.fix,
             "source": self.source,
         }
+        if self.code:
+            d["code"] = self.code
+        return d
 
 
 @dataclass

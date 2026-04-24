@@ -88,7 +88,7 @@ def run(
         # Layer 0: Pre-checks
         r0 = prechecks.validate(ctx)
         results.append(r0)
-        missing_files = any(f.severity == Severity.ERROR and "not found" in f.message for f in r0.findings)
+        missing_files = any(f.code == "missing_file" for f in r0.findings)
 
         # Skip downstream layers if required files are missing
         if missing_files:

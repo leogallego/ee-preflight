@@ -1,3 +1,14 @@
+"""Layer 0: Pre-checks validation.
+
+This module performs early sanity checks before running expensive operations:
+- YAML linting with ansible-lint (optional)
+- Dependency file existence checks
+- Build argument validation
+- Base image format validation
+
+Errors in this layer (e.g., missing files) skip Layers 1-3.
+"""
+
 from __future__ import annotations
 
 import os
@@ -9,6 +20,14 @@ from ..models import Finding, LayerResult, Severity, ValidateContext
 
 
 def validate(ctx: ValidateContext) -> LayerResult:
+    """Run Layer 0 pre-checks.
+
+    Args:
+        ctx: Validation context
+
+    Returns:
+        LayerResult with status "fail" if required files are missing, "pass" otherwise
+    """
     findings: list[Finding] = []
 
     _check_ansible_lint(ctx, findings)
@@ -23,6 +42,15 @@ def validate(ctx: ValidateContext) -> LayerResult:
 
 
 def _check_ansible_lint(ctx: ValidateContext, findings: list[Finding]) -> None:
+    """Run ansible-lint on the execution-environment.yml file.
+
+    Optional check: skips if ansible-lint is not installed. Reports YAML
+    formatting and style issues as warnings.
+
+    Args:
+        ctx: Validation context
+        findings: List to append findings to
+    """
     if not shutil.which("ansible-lint"):
         findings.append(
             Finding(
@@ -54,6 +82,15 @@ def _check_ansible_lint(ctx: ValidateContext, findings: list[Finding]) -> None:
 
 
 def _check_file_refs(ctx: ValidateContext, findings: list[Finding]) -> None:
+    """Check that all referenced dependency files exist.
+
+    Reports ERROR if a file referenced in dependencies (e.g., requirements.txt)
+    does not exist on disk.
+
+    Args:
+        ctx: Validation context
+        findings: List to append findings to
+    """
     for _dep_name, dep_ref in [
         ("galaxy", ctx.ee.galaxy),
         ("python", ctx.ee.python),
@@ -72,6 +109,15 @@ def _check_file_refs(ctx: ValidateContext, findings: list[Finding]) -> None:
 
 
 def _check_build_args(ctx: ValidateContext, findings: list[Finding]) -> None:
+    """Check that ARGs declared in build steps have environment variables set.
+
+    Scans additional_build_steps for ARG declarations and warns if the
+    corresponding environment variable is not set.
+
+    Args:
+        ctx: Validation context
+        findings: List to append findings to
+    """
     for arg_name in ctx.ee.build_args:
         if not os.environ.get(arg_name):
             findings.append(
@@ -84,6 +130,15 @@ def _check_build_args(ctx: ValidateContext, findings: list[Finding]) -> None:
 
 
 def _check_base_image(ctx: ValidateContext, findings: list[Finding]) -> None:
+    """Validate the base image format and presence.
+
+    Checks that a base image is specified and matches expected format.
+    Reports INFO if the image uses SHA digest pinning.
+
+    Args:
+        ctx: Validation context
+        findings: List to append findings to
+    """
     image = ctx.ee.base_image
     if not image:
         findings.append(

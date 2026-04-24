@@ -1,3 +1,10 @@
+"""Command-line interface for ee-preflight.
+
+This module provides the CLI entry point and output formatting for ee-preflight.
+It handles argument parsing, invokes the validation runner, and formats results
+as either human-readable text or JSON.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -10,6 +17,12 @@ from .runner import run
 
 
 def main() -> None:
+    """Entry point for the ee-preflight CLI.
+
+    Parses command-line arguments, validates the execution environment definition,
+    and outputs results in either JSON or human-readable format. Exits with code 1
+    if validation errors are found, 0 otherwise.
+    """
     parser = argparse.ArgumentParser(
         prog="ee-preflight",
         description="Pre-build validation for Ansible Execution Environments",
@@ -77,6 +90,13 @@ LAYER_NAMES = {
 
 
 def _output_json(ee_path: Path, results: list[LayerResult]) -> None:
+    """Output validation results as JSON.
+
+    Args:
+        ee_path: Path to the execution-environment.yml file
+        results: List of layer validation results
+
+    """
     overall = "fail" if any(r.has_errors for r in results) else "pass"
     output = {
         "ee": str(ee_path),
@@ -87,6 +107,17 @@ def _output_json(ee_path: Path, results: list[LayerResult]) -> None:
 
 
 def _output_human(ee_path: Path, results: list[LayerResult], verbose: bool) -> None:
+    """Output validation results in human-readable format.
+
+    Formats results with icons, indentation, and color-coded severity levels.
+    INFO findings are only shown when verbose is True.
+
+    Args:
+        ee_path: Path to the execution-environment.yml file
+        results: List of layer validation results
+        verbose: Whether to show INFO-level findings
+
+    """
     print(f"\nee-preflight: {ee_path}\n")
 
     errors = 0

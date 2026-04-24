@@ -1,3 +1,14 @@
+"""Validation orchestration and venv lifecycle management.
+
+This module is the main orchestrator for ee-preflight. It:
+- Creates and manages the temporary venv for ade install
+- Executes the 4 validation layers in sequence
+- Handles layer dependencies (skipping downstream layers on errors)
+- Applies fixes via --fix
+- Re-validates cheap layers after fixes are applied
+- Optionally runs ansible-builder after successful validation
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -25,6 +36,30 @@ def run(
     use_cache: bool = True,
     cache_path: Path | None = None,
 ) -> list[LayerResult]:
+    """Run all validation layers against an execution environment definition.
+
+    Executes up to 4 validation layers in sequence:
+    - Layer 0: Pre-checks (YAML lint, file refs, build args)
+    - Layer 1: Galaxy resolution (ade install)
+    - Layer 2: Dependency validation (diff discovered vs declared)
+    - Layer 3: Container wheel test (optional, tests source-only Python packages)
+
+    If Layer 0 finds missing files, Layers 1-3 are skipped.
+    If Layer 1 fails, Layers 2-3 are skipped.
+
+    Args:
+        ee_path: Path to execution-environment.yml
+        fix: Apply auto-fixes to EE files when possible
+        build: Run ansible-builder after successful validation
+        tag: Image tag for --build (default: <ee_dir_name>:latest)
+        venv_path: Custom venv path (if None, creates temp venv in tmp/)
+        keep_venv: Keep temp venv after run (only applies to auto-created venvs)
+        container_test: Force Layer 3 container wheel test
+        verbose: Show INFO-level findings in output
+
+    Returns:
+        List of LayerResult objects, one per layer executed
+    """
     ee = parse_ee(ee_path)
     user_venv = venv_path is not None
 
@@ -50,10 +85,12 @@ def run(
     results: list[LayerResult] = []
 
     try:
+        # Layer 0: Pre-checks
         r0 = prechecks.validate(ctx)
         results.append(r0)
         missing_files = any(f.severity == Severity.ERROR and "not found" in f.message for f in r0.findings)
 
+        # Skip downstream layers if required files are missing
         if missing_files:
             results.extend(
                 [
@@ -64,9 +101,11 @@ def run(
             )
             return results
 
+        # Layer 1: Galaxy resolution via ade install
         r1, python_build_findings, failed_pkgs = galaxy.validate(ctx)
         results.append(r1)
 
+        # Skip Layers 2-3 if galaxy resolution failed
         if r1.has_errors:
             results.extend(
                 [
@@ -75,7 +114,9 @@ def run(
                 ]
             )
         else:
+            # Layer 2: Dependency validation (diff discovered vs declared)
             r2 = python_deps.validate(ctx)
+            # Attach Python build failures from Layer 1 to Layer 2 results
             r2.findings.extend(python_build_findings)
             if (
                 python_build_findings
@@ -85,9 +126,11 @@ def run(
                 r2.status = "fail"
             results.append(r2)
 
+            # Force Layer 3 if Python build failures were detected
             if python_build_findings:
                 ctx.container_test = True
 
+            # Layer 3: Container wheel test (source-only Python packages)
             r3 = system_deps.validate(ctx, extra_packages=failed_pkgs)
             results.append(r3)
 
@@ -160,6 +203,18 @@ def run(
 
 
 def _run_build(ee: EEDefinition, tag: str | None) -> LayerResult:
+    """Run ansible-builder to build the execution environment image.
+
+    Invokes ansible-builder with verbosity level 3 and passes through any
+    build args extracted from the EE definition's additional_build_steps.
+
+    Args:
+        ee: Parsed execution environment definition
+        tag: Image tag for the build (default: <ee_dir_name>:latest)
+
+    Returns:
+        LayerResult indicating build success or failure
+    """
     ee_name = ee.ee_dir.name
     if tag is None:
         tag = f"{ee_name}:latest"
@@ -175,6 +230,7 @@ def _run_build(ee: EEDefinition, tag: str | None) -> LayerResult:
         "3",
     ]
 
+    # Pass through ARGs declared in additional_build_steps
     for arg_name in ee.build_args:
         val = os.environ.get(arg_name)
         if val:

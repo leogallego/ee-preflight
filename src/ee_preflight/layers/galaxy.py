@@ -1,3 +1,15 @@
+"""Layer 1: Galaxy resolution via ade install.
+
+This module uses `ade install` to:
+- Resolve and install Ansible collections
+- Detect collection conflicts and authentication errors
+- Identify Python build failures during collection installation
+- Retry transient errors with exponential backoff
+
+Python build failures are separated and attached to Layer 2 results,
+while collection resolution errors fail Layer 1.
+"""
+
 from __future__ import annotations
 
 import os
@@ -10,6 +22,7 @@ import yaml
 
 from ..models import DepFormat, Finding, LayerResult, Severity, ValidateContext
 
+# Network errors that should trigger retry with backoff
 TRANSIENT_PATTERNS = [
     "HTTP Error 504",
     "HTTP Error 502",
@@ -19,6 +32,7 @@ TRANSIENT_PATTERNS = [
     "Gateway Time-out",
 ]
 
+# Patterns indicating Python package build failures during ade install
 PYTHON_BUILD_PATTERNS = [
     "No module named",
     "command not found",
@@ -30,14 +44,23 @@ PYTHON_BUILD_PATTERNS = [
 ]
 
 MAX_RETRIES = 3
-BACKOFF_SECONDS = [5, 15, 45]
+BACKOFF_SECONDS = [5, 15, 45]  # Exponential backoff for transient errors
 
 
 def validate(ctx: ValidateContext) -> tuple[LayerResult, list[Finding], set[str]]:
-    """Returns (layer1_result, python_build_findings, failed_pkgs).
+    """Run Layer 1 galaxy resolution via ade install.
 
-    Python build findings are separated so the runner can attach them
-    to Layer 2 instead of failing Layer 1.
+    Runs `ade install` with retry logic for transient errors. Separates
+    collection resolution errors from Python build failures.
+
+    Args:
+        ctx: Validation context
+
+    Returns:
+        Tuple of (layer1_result, python_build_findings, failed_pkgs):
+        - layer1_result: LayerResult for galaxy resolution
+        - python_build_findings: List of Python build error findings (attached to Layer 2)
+        - failed_pkgs: Set of Python package names that failed to build
     """
     findings: list[Finding] = []
 
@@ -147,6 +170,17 @@ def validate(ctx: ValidateContext) -> tuple[LayerResult, list[Finding], set[str]
 
 
 def _get_requirements_path(ctx: ValidateContext, findings: list[Finding]) -> Path | None:
+    """Get path to galaxy requirements file for ade install.
+
+    If galaxy deps are inline, creates a temporary requirements.yml.
+
+    Args:
+        ctx: Validation context
+        findings: List to append findings to
+
+    Returns:
+        Path to requirements file, or None if no galaxy deps are defined
+    """
     if ctx.ee.galaxy is None:
         findings.append(
             Finding(
@@ -159,6 +193,7 @@ def _get_requirements_path(ctx: ValidateContext, findings: list[Finding]) -> Pat
     if ctx.ee.galaxy.format == DepFormat.FILE:
         return ctx.ee.galaxy.file_path
 
+    # Create temp file for inline deps
     tmp_dir = Path("tmp")
     tmp_dir.mkdir(parents=True, exist_ok=True)
     tmp = tmp_dir / "inline-requirements.yml"
@@ -168,6 +203,17 @@ def _get_requirements_path(ctx: ValidateContext, findings: list[Finding]) -> Pat
 
 
 def _build_env(ctx: ValidateContext) -> dict:
+    """Build environment dict for ade install.
+
+    Configures Automation Hub authentication if AH_TOKEN is set.
+    Sets UV_CACHE_DIR to tmp/ to avoid read-only filesystem issues.
+
+    Args:
+        ctx: Validation context
+
+    Returns:
+        Environment dict for subprocess
+    """
     env = os.environ.copy()
     env.pop("ANSIBLE_CONFIG", None)
     # Keep uv cache local to avoid read-only filesystem issues in sandboxed environments
@@ -195,10 +241,26 @@ def _build_env(ctx: ValidateContext) -> dict:
 
 
 def _is_transient(output: str) -> bool:
+    """Check if error output indicates a transient network issue.
+
+    Args:
+        output: Combined stdout/stderr from ade install
+
+    Returns:
+        True if output contains transient error patterns
+    """
     return any(p in output for p in TRANSIENT_PATTERNS)
 
 
 def _count_collections(output: str) -> int:
+    """Count how many collections were installed.
+
+    Args:
+        output: Combined stdout/stderr from ade install
+
+    Returns:
+        Number of collections installed
+    """
     count = output.count("was installed successfully")
     if count == 0:
         count = output.count("Installing ")
@@ -206,6 +268,16 @@ def _count_collections(output: str) -> int:
 
 
 def _parse_collection_errors(output: str) -> list[Finding]:
+    """Extract collection resolution errors from ade install output.
+
+    Looks for version conflicts and authentication failures.
+
+    Args:
+        output: Combined stdout/stderr from ade install
+
+    Returns:
+        List of ERROR findings for collection issues
+    """
     findings: list[Finding] = []
 
     if "Could not satisfy" in output or "Failed to resolve" in output:
@@ -232,6 +304,20 @@ def _parse_collection_errors(output: str) -> list[Finding]:
 
 
 def _parse_python_build_errors(output: str) -> tuple[list[Finding], set[str]]:
+    """Extract Python package build failures from ade install output.
+
+    Detects missing headers, libraries, and commands that prevent wheels
+    from building. These are separated from collection errors and attached
+    to Layer 2 results.
+
+    Args:
+        output: Combined stdout/stderr from ade install
+
+    Returns:
+        Tuple of (findings, failed_pkgs):
+        - findings: List of WARNING findings for Python build issues
+        - failed_pkgs: Set of package names that failed to build
+    """
     findings: list[Finding] = []
 
     if not any(p in output for p in PYTHON_BUILD_PATTERNS):
@@ -248,6 +334,7 @@ def _parse_python_build_errors(output: str) -> tuple[list[Finding], set[str]]:
         for match in re.finditer(pattern, output):
             failed_pkgs.add(match.group(1).lower().replace("-", "_"))
 
+    # Patterns for identifying missing files/dependencies
     missing_file_patterns = [
         (r"fatal error: (\S+\.h): No such file or directory", "header"),
         (r"(\S+): command not found", "command"),

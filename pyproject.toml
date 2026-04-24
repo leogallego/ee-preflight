@@ -7,20 +7,28 @@ name = "ee-preflight"
 version = "0.1.0"
 description = "Pre-build validation for Ansible Execution Environments"
 readme = "README.md"
-license = "Apache-2.0"
+license = {text = "Apache-2.0"}
 requires-python = ">=3.11"
 authors = [
     {name = "Leonardo Gallego"},
 ]
+keywords = ["ansible", "execution-environment", "validation", "ansible-builder", "devops"]
 classifiers = [
     "Development Status :: 3 - Alpha",
+    "Environment :: Console",
     "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3 :: Only",
     "Topic :: Software Development :: Build Tools",
+    "Topic :: Software Development :: Quality Assurance",
     "Topic :: System :: Systems Administration",
+    "Typing :: Typed",
 ]
 dependencies = [
     "pyyaml>=6.0",

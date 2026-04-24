@@ -1,0 +1,18 @@
+---
+version: 3
+
+images:
+  base_image:
+    name: registry.redhat.io/ansible-automation-platform-24/ee-minimal-rhel9:latest
+
+dependencies:
+  galaxy: requirements.yml
+  python_interpreter:
+    package_system: python311
+  system: bindep.txt
+
+additional_build_steps:
+  prepend_galaxy:
+    - ARG AH_TOKEN
+  prepend_final: |
+    RUN echo "Execution environment built successfully"

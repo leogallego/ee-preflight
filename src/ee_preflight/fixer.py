@@ -1,3 +1,14 @@
+"""Auto-fix logic for --fix mode.
+
+This module applies suggested fixes from validation findings back to the
+execution-environment.yml file and dependency files. Currently supports:
+- Adding missing system (bindep) dependencies
+- Creating new dependency files if they don't exist
+- Adding dependency references to execution-environment.yml
+
+Python dependency fixes are not yet implemented (no layer produces them).
+"""
+
 from __future__ import annotations
 
 import re
@@ -8,8 +19,21 @@ from .models import DepFormat, EEDefinition, Finding
 
 
 def apply_fixes(ee: EEDefinition, findings: list[Finding]) -> list[str]:
+    """Apply auto-fixes to the EE definition and dependency files.
+
+    Processes fix suggestions from validation findings and writes changes back
+    to the filesystem. Returns a list of change descriptions for user feedback.
+
+    Args:
+        ee: Parsed execution environment definition
+        findings: List of findings with fix suggestions
+
+    Returns:
+        List of human-readable change descriptions
+    """
     changes: list[str] = []
 
+    # Extract system (bindep) fixes from findings
     system_fixes = [f for f in findings if f.fix and "bindep" in f.fix.lower()]
 
     if system_fixes:
@@ -24,6 +48,17 @@ def apply_fixes(ee: EEDefinition, findings: list[Finding]) -> list[str]:
 
 
 def _extract_quoted_entries(fixes: list[Finding]) -> list[str]:
+    """Extract quoted dependency entries from fix suggestions.
+
+    Parses fix text like "Add 'python3-devel' to bindep.txt" to extract
+    the quoted package name.
+
+    Args:
+        fixes: Findings with fix suggestions
+
+    Returns:
+        List of extracted entries (e.g., package names)
+    """
     entries: list[str] = []
     for f in fixes:
         if f.fix and "'" in f.fix:
@@ -34,10 +69,23 @@ def _extract_quoted_entries(fixes: list[Finding]) -> list[str]:
 
 
 def _add_system_deps(ee: EEDefinition, entries: list[str], changes: list[str]) -> None:
+    """Add system (bindep) dependencies to the EE definition.
+
+    Handles three cases:
+    1. Existing FILE reference: append to the file
+    2. Existing INLINE list: add to the inline list in execution-environment.yml
+    3. No system deps: create bindep.txt and add reference to execution-environment.yml
+
+    Args:
+        ee: Execution environment definition
+        entries: List of bindep entries to add
+        changes: List to append change descriptions to
+    """
     if not entries:
         return
 
     if ee.system and ee.system.format == DepFormat.FILE and ee.system.file_path:
+        # Append to existing bindep file
         existing = ee.system.file_path.read_text() if ee.system.file_path.exists() else ""
         existing_names = {line.split()[0] for line in existing.splitlines() if line.strip()}
         new_entries = [e for e in entries if e.split()[0] not in existing_names]
@@ -48,9 +96,11 @@ def _add_system_deps(ee: EEDefinition, entries: list[str], changes: list[str]) -
             changes.append(f"Added to {ee.system.file_path.name}: {', '.join(new_entries)}")
 
     elif ee.system and ee.system.format == DepFormat.INLINE:
+        # Add to inline list in execution-environment.yml
         _add_inline_deps(ee, "system", entries, changes)
 
     else:
+        # Create new bindep.txt and add reference to execution-environment.yml
         bindep_path = ee.ee_dir / "bindep.txt"
         with open(bindep_path, "w") as f:
             for entry in entries:
@@ -60,6 +110,16 @@ def _add_system_deps(ee: EEDefinition, entries: list[str], changes: list[str]) -
 
 
 def _add_python_deps(ee: EEDefinition, entries: list[str], changes: list[str]) -> None:
+    """Add Python dependencies to the EE definition.
+
+    Similar to _add_system_deps but for Python requirements. Currently not used
+    as no layer emits Python fix suggestions, but kept for future use.
+
+    Args:
+        ee: Execution environment definition
+        entries: List of Python requirement specs to add
+        changes: List to append change descriptions to
+    """
     if not entries:
         return
 
@@ -88,6 +148,17 @@ def _add_python_deps(ee: EEDefinition, entries: list[str], changes: list[str]) -
 
 
 def _add_dep_ref_to_ee(ee: EEDefinition, dep_type: str, filename: str, changes: list[str]) -> None:
+    """Add a dependency file reference to execution-environment.yml.
+
+    Inserts a line like "system: bindep.txt" under the dependencies: key.
+    Creates the dependencies: key if it doesn't exist.
+
+    Args:
+        ee: Execution environment definition
+        dep_type: Dependency type ("galaxy", "python", or "system")
+        filename: Filename to reference (e.g., "bindep.txt")
+        changes: List to append change descriptions to
+    """
     lines = ee.path.read_text().splitlines(keepends=True)
 
     # Check if the dep_type already exists under dependencies
@@ -106,7 +177,7 @@ def _add_dep_ref_to_ee(ee: EEDefinition, dep_type: str, filename: str, changes: 
             break
 
     if dep_line_idx is None:
-        # No dependencies key — append one at end of file
+        # No dependencies key - append one at end of file
         if lines and not lines[-1].endswith("\n"):
             lines[-1] += "\n"
         lines.append("dependencies:\n")
@@ -139,6 +210,17 @@ def _add_dep_ref_to_ee(ee: EEDefinition, dep_type: str, filename: str, changes: 
 
 
 def _add_inline_deps(ee: EEDefinition, dep_type: str, entries: list[str], changes: list[str]) -> None:
+    """Add dependencies to an inline list in execution-environment.yml.
+
+    Appends new entries to the existing list, preserving YAML formatting and indentation.
+    Handles both plain lists (python/system) and galaxy dict format (collections: [...]).
+
+    Args:
+        ee: Execution environment definition
+        dep_type: Dependency type ("galaxy", "python", or "system")
+        entries: List of entries to add
+        changes: List to append change descriptions to
+    """
     # Verify the dep_type is inline (list or dict with a nested list)
     with open(ee.path) as f:
         raw = yaml.safe_load(f)
@@ -233,6 +315,17 @@ def _add_inline_deps(ee: EEDefinition, dep_type: str, entries: list[str], change
 
 
 def _pkg_name(spec: str) -> str:
+    """Extract the package name from a Python requirement specifier.
+
+    Strips version constraints, extras, and environment markers to get the
+    base package name. Normalizes hyphens to underscores for comparison.
+
+    Args:
+        spec: Python requirement spec (e.g., "pkg>=1.0[extra];python_version>'3.8'")
+
+    Returns:
+        Normalized package name (e.g., "pkg")
+    """
     for sep in (">=", "<=", "==", "!=", ">", "<", "[", ";"):
         spec = spec.split(sep)[0]
     return spec.strip().lower().replace("-", "_")

@@ -24,7 +24,7 @@ def validate(ctx: ValidateContext, extra_packages: set[str] | None = None) -> La
     findings: list[Finding] = []
 
     try:
-        runtime = ContainerRuntime()
+        runtime = ContainerRuntime(ctx.runtime)
     except RuntimeError as e:
         findings.append(Finding(severity=Severity.ERROR, message=str(e)))
         return LayerResult(name="system_deps", status="fail", findings=findings)

@@ -21,6 +21,11 @@ def main() -> None:
     parser.add_argument("--venv", type=Path, dest="venv_path", help="Venv path (kept after run)")
     parser.add_argument("--keep-venv", action="store_true", help="Keep temp venv after run")
     parser.add_argument("--container-test", action="store_true", help="Test wheel builds in container")
+    parser.add_argument(
+        "--runtime",
+        choices=["podman", "docker"],
+        help="Container runtime to use (default: auto-detect podman then docker)",
+    )
     parser.add_argument("--json", action="store_true", dest="json_output", help="Output JSON")
     parser.add_argument("--verbose", action="store_true", help="Show passing checks")
     parser.add_argument("--no-cache", action="store_true", help="Skip reading dependency cache")
@@ -47,6 +52,7 @@ def main() -> None:
         venv_path=args.venv_path,
         keep_venv=args.keep_venv,
         container_test=args.container_test,
+        runtime=args.runtime,
         verbose=args.verbose,
         use_cache=not args.no_cache,
     )

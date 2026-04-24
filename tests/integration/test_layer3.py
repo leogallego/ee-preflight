@@ -42,3 +42,40 @@ def test_system_deps_runs_with_flag(minimal_ee_path, tmp_path):
 
     assert result.name == "system_deps"
     assert result.status in ("pass", "fail")
+
+
+def test_system_deps_runtime_selection_podman(minimal_ee_path, tmp_path):
+    """Layer 3 should use podman when explicitly requested."""
+    if not shutil.which("podman"):
+        pytest.skip("podman not available for testing")
+
+    ee = parse_ee(minimal_ee_path)
+    ctx = ValidateContext(ee=ee, venv_path=tmp_path / "venv", container_test=True, runtime="podman")
+    result = validate(ctx)
+
+    assert result.name == "system_deps"
+    assert result.status in ("pass", "fail")
+
+
+def test_system_deps_runtime_selection_docker(minimal_ee_path, tmp_path):
+    """Layer 3 should use docker when explicitly requested."""
+    if not shutil.which("docker"):
+        pytest.skip("docker not available for testing")
+
+    ee = parse_ee(minimal_ee_path)
+    ctx = ValidateContext(ee=ee, venv_path=tmp_path / "venv", container_test=True, runtime="docker")
+    result = validate(ctx)
+
+    assert result.name == "system_deps"
+    assert result.status in ("pass", "fail")
+
+
+def test_system_deps_invalid_runtime(minimal_ee_path, tmp_path):
+    """Layer 3 should fail gracefully when an invalid runtime is requested."""
+    ee = parse_ee(minimal_ee_path)
+    ctx = ValidateContext(ee=ee, venv_path=tmp_path / "venv", container_test=True, runtime="invalid")
+    result = validate(ctx)
+
+    assert result.name == "system_deps"
+    assert result.status == "fail"
+    assert any("Invalid runtime" in f.message for f in result.findings)

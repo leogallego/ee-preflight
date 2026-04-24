@@ -55,7 +55,8 @@ Result: PASS (0 error(s), 1 warning(s))
 
 ```
 ee-preflight [-h] [--fix] [--build] [--tag TAG] [--venv PATH]
-             [--keep-venv] [--container-test] [--json] [--verbose]
+             [--keep-venv] [--container-test] [--runtime {podman|docker}]
+             [--json] [--verbose]
              ee_path
 ```
 
@@ -75,6 +76,7 @@ ee-preflight [-h] [--fix] [--build] [--tag TAG] [--venv PATH]
 | `--venv PATH` | Path to a virtual environment for collection installation. The venv is kept after the run. |
 | `--keep-venv` | Keep the auto-created temporary venv after the run instead of cleaning it up. Useful for inspecting installed collections. |
 | `--container-test` | Enable Layer 3: pull the base image and attempt to build wheels for source-only Python packages inside the container. Requires podman or docker. |
+| `--runtime {podman\|docker}` | Force a specific container runtime. Default: auto-detect (podman preferred, then docker). Only used when `--container-test` is enabled. |
 | `--json` | Output results as JSON instead of human-readable text. |
 | `--verbose` | Show passing checks and informational findings that are hidden by default. |
 
@@ -120,6 +122,12 @@ Use an existing venv (skips creating a temporary one):
 
 ```bash
 ee-preflight my-ee/execution-environment.yml --venv .venv
+```
+
+Force Docker runtime (useful in CI environments where Docker is available but Podman is not):
+
+```bash
+ee-preflight my-ee/execution-environment.yml --container-test --runtime docker
 ```
 
 ## Validation layers
@@ -207,6 +215,12 @@ expanded set of dependencies (up to 3 retry rounds).
 **Requirements:** podman or docker must be installed and available in
 `PATH`. The base image specified in the EE definition must be pullable
 (registry authentication may be needed for `registry.redhat.io` images).
+
+**Container runtime selection:** By default, ee-preflight auto-detects the
+available container runtime with the following priority: podman, then docker.
+You can override this with `--runtime {podman|docker}` to force a specific
+runtime. This is useful in CI environments where only one runtime is available,
+or when you need to test compatibility with a specific runtime.
 
 ## The `--fix` workflow
 

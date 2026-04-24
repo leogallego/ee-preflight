@@ -40,7 +40,7 @@ This roadmap outlines the evolution of ee-preflight from an internal validation 
   ```
 - **Cache key:** `(base_image, python_package, missing_file, platform)`
 - **Invalidation:** Entries older than 30 days are ignored (base images change)
-- **Cache location:** Project root (`.ee-preflight-cache.json`) — checked into git for team sharing
+- **Cache location:** Project root (`.ee-preflight-cache.json`) — added to `.gitignore` by default (caches are machine/environment-specific)
 - **Behavior:**
   - Layer 3 checks cache before running `dnf provides`
   - Cache hits skip container exec (instant results)
@@ -54,7 +54,7 @@ This roadmap outlines the evolution of ee-preflight from an internal validation 
 - [ ] Cache read/write implemented in Layer 3
 - [ ] Cache invalidation based on 30-day TTL
 - [ ] `--no-cache` and `--clear-cache` flags work
-- [ ] Cache file added to `.gitignore` by default (or document that it SHOULD be committed)
+- [ ] Cache file added to `.gitignore` by default
 - [ ] Unit tests for cache hit/miss/invalidation logic
 
 **Complexity:** Medium  

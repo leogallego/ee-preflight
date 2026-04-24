@@ -4,16 +4,94 @@ on:
     tags: ["v*"]
 
 jobs:
-  publish:
+  build:
     runs-on: ubuntu-latest
-    environment: release
-    permissions:
-      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install build
-      - run: python -m build
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Install build dependencies
+        run: pip install build twine
+      - name: Build package
+        run: python -m build
+      - name: Check package metadata
+        run: twine check dist/*
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  publish-pypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  create-release:
+    needs: publish-pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get the previous tag
+          PREV_TAG=$(git describe --abbrev=0 --tags $(git rev-list --tags --skip=1 --max-count=1) 2>/dev/null || echo "")
+          if [ -z "$PREV_TAG" ]; then
+            echo "## Changes" > changelog.md
+            git log --pretty=format:"* %s (%h)" >> changelog.md
+          else
+            echo "## Changes since $PREV_TAG" > changelog.md
+            git log --pretty=format:"* %s (%h)" $PREV_TAG..HEAD >> changelog.md
+          fi
+          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+          cat changelog.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: v${{ steps.version.outputs.VERSION }}
+          body: |
+            # ee-preflight v${{ steps.version.outputs.VERSION }}
+
+            Install from PyPI:
+            ```bash
+            pip install ee-preflight==${{ steps.version.outputs.VERSION }}
+            ```
+
+            ${{ steps.changelog.outputs.CHANGELOG }}
+
+            ## Checksums
+
+            ```
+            $(cd dist && sha256sum *)
+            ```
+          files: dist/*
+          draft: false
+          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+          generate_release_notes: false

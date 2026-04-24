@@ -1,5 +1,10 @@
 # ee-preflight
 
+[![PyPI version](https://badge.fury.io/py/ee-preflight.svg)](https://badge.fury.io/py/ee-preflight)
+[![Python versions](https://img.shields.io/pypi/pyversions/ee-preflight.svg)](https://pypi.org/project/ee-preflight/)
+[![License](https://img.shields.io/pypi/l/ee-preflight.svg)](https://github.com/leogallego/ee-preflight/blob/main/LICENSE)
+[![CI Status](https://github.com/leogallego/ee-preflight/workflows/CI/badge.svg)](https://github.com/leogallego/ee-preflight/actions)
+
 Pre-build validation for Ansible Execution Environments.
 
 ee-preflight catches dependency conflicts, missing system packages, and
@@ -303,6 +308,341 @@ The exit code is `0` when all layers pass and `1` when any error is present.
 | ansible-builder | 3.0.x | Optional. Required only for `--build`. Install with `pip install ee-preflight[build]` |
 | podman or docker | Any | Optional. Required only for `--container-test` (Layer 3) |
 
+## Troubleshooting
+
+This section covers common issues and their solutions.
+
+### Authentication Issues
+
+**Problem: Collections from Automation Hub fail to install**
+
+```
+Layer 1: Galaxy Resolution ✗
+  ✗ Failed to install collections from Automation Hub
+  → Check AH_TOKEN environment variable
+```
+
+**Solution:**
+
+1. Get an offline token from [console.redhat.com](https://console.redhat.com/ansible/automation-hub/token)
+2. Export it before running ee-preflight:
+
+   ```bash
+   export AH_TOKEN=<your-offline-token>
+   ee-preflight my-ee/execution-environment.yml
+   ```
+
+3. Verify the token is not expired (tokens expire after 30 days of inactivity)
+
+**Problem: Container registry authentication fails (Layer 3)**
+
+```
+Layer 3: Container Wheel Test ✗
+  ✗ Failed to pull image registry.redhat.io/ansible-automation-platform-24/ee-minimal-rhel9:latest
+```
+
+**Solution:**
+
+For Red Hat registries, authenticate with podman or docker first:
+
+```bash
+# Using podman
+podman login registry.redhat.io
+
+# Using docker
+docker login registry.redhat.io
+```
+
+Use your Red Hat account credentials when prompted.
+
+### Container Runtime Issues
+
+**Problem: No container runtime found**
+
+```
+Layer 3: Container Wheel Test ✗
+  ✗ Neither podman nor docker found in PATH
+```
+
+**Solution:**
+
+Install podman or docker:
+
+```bash
+# Fedora/RHEL/CentOS
+sudo dnf install podman
+
+# Ubuntu/Debian
+sudo apt-get install podman
+
+# macOS
+brew install podman
+podman machine init
+podman machine start
+```
+
+Verify installation:
+
+```bash
+podman --version
+# or
+docker --version
+```
+
+**Problem: Permission denied when accessing container runtime**
+
+```
+Layer 3: Container Wheel Test ✗
+  ✗ permission denied while trying to connect to the Docker daemon socket
+```
+
+**Solution:**
+
+For Docker, add your user to the docker group:
+
+```bash
+sudo usermod -aG docker $USER
+newgrp docker  # or log out and back in
+```
+
+For Podman, this usually indicates a rootless configuration issue. Try:
+
+```bash
+podman system migrate
+```
+
+### Collection Version Conflicts
+
+**Problem: Collections require incompatible versions of a dependency**
+
+```
+Layer 1: Galaxy Resolution ✗
+  ✗ Collection version conflict
+    ansible.netcommon requires ansible.utils>=2.0.0
+    cisco.ios requires ansible.utils<2.0.0
+```
+
+**Solution:**
+
+1. Check the collection versions in your `requirements.yml`
+2. Update to compatible versions:
+
+   ```yaml
+   collections:
+     - name: ansible.netcommon
+       version: ">=5.0.0"  # Compatible with ansible.utils 2.x
+     - name: cisco.ios
+       version: ">=5.0.0"  # Compatible with ansible.utils 2.x
+     - name: ansible.utils
+       version: ">=2.0.0"
+   ```
+
+3. Or pin to specific working versions:
+
+   ```yaml
+   collections:
+     - name: ansible.netcommon
+       version: "5.3.0"
+     - name: cisco.ios
+       version: "5.3.0"
+     - name: ansible.utils
+       version: "2.12.0"
+   ```
+
+**Problem: Collection not found on Galaxy**
+
+```
+Layer 1: Galaxy Resolution ✗
+  ✗ Collection my.collection not found
+```
+
+**Solution:**
+
+1. Verify the collection name is correct (check [galaxy.ansible.com](https://galaxy.ansible.com))
+2. If it is a private collection, ensure you have access and proper authentication
+3. Check if the collection was renamed or moved
+
+### Build Failures
+
+**Problem: ansible-builder build fails after ee-preflight passes**
+
+This should be rare, but can happen if:
+
+1. The base image changed between validation and build
+2. A collection was updated on Galaxy between validation and build
+3. Network issues during build
+
+**Solution:**
+
+1. Run with `--container-test` to catch more issues:
+
+   ```bash
+   ee-preflight my-ee/execution-environment.yml --container-test --fix --build
+   ```
+
+2. Compare the failed build output with ee-preflight findings
+3. If ee-preflight missed something, please [report an issue](https://github.com/leogallego/ee-preflight/issues)
+
+**Problem: Build succeeds but container crashes at runtime**
+
+```
+Error: libfoo.so.1: cannot open shared object file: No such file or directory
+```
+
+**Solution:**
+
+This indicates a runtime dependency that is not a build dependency. Layer 3 only tests build-time wheel compilation.
+
+1. Add the runtime dependency to `bindep.txt`:
+
+   ```
+   libfoo [platform:rpm]
+   ```
+
+2. Re-run with `--fix --build`:
+
+   ```bash
+   ee-preflight my-ee/execution-environment.yml --fix --build
+   ```
+
+### Cache Issues
+
+**Problem: ee-preflight reports old/stale collection versions**
+
+**Solution:**
+
+1. Clear the ade cache:
+
+   ```bash
+   rm -rf ~/.ansible/ade/
+   ```
+
+2. If using `--venv`, remove the venv and let ee-preflight create a fresh one:
+
+   ```bash
+   rm -rf .venv
+   ee-preflight my-ee/execution-environment.yml
+   ```
+
+**Problem: Temporary venv fills up disk space**
+
+By default, ee-preflight creates temporary venvs in `/tmp/ade-venv-*` and cleans them up. If cleanup fails:
+
+```bash
+# Find orphaned venvs
+ls -lhd /tmp/ade-venv-*
+
+# Remove them
+rm -rf /tmp/ade-venv-*
+```
+
+To avoid this, use a persistent venv with `--venv`:
+
+```bash
+python -m venv .venv
+ee-preflight my-ee/execution-environment.yml --venv .venv
+```
+
+### Platform Detection Issues
+
+**Problem: Wrong system dependencies detected (rpm vs deb)**
+
+```
+Layer 2: Dependency Validation ⚠
+  ⚠ Undeclared system dep: libxml2-dev
+    → Add 'libxml2-dev [platform:dpkg]' to bindep.txt
+```
+
+But your base image is RHEL-based (needs `libxml2-devel`, not `libxml2-dev`).
+
+**Solution:**
+
+ee-preflight infers the platform from the base image name. If detection fails:
+
+1. Use an explicit base image name with platform indicator:
+
+   ```yaml
+   images:
+     base_image:
+       name: registry.redhat.io/ansible-automation-platform-24/ee-minimal-rhel9:latest
+   ```
+
+2. Or manually correct the fix suggestion when applying it
+
+3. Or use platform-specific markers in `bindep.txt`:
+
+   ```
+   libxml2-devel [platform:rpm]
+   libxml2-dev [platform:dpkg]
+   ```
+
+### YAML Linting Issues
+
+**Problem: Layer 0 reports YAML formatting issues**
+
+```
+Layer 0: Pre-checks ✗
+  ✗ YAML formatting issue: line too long
+```
+
+**Solution:**
+
+1. If you have ansible-lint installed, it is enforcing style rules
+2. Fix the issues manually or use ansible-lint to auto-fix:
+
+   ```bash
+   ansible-lint --fix execution-environment.yml
+   ```
+
+3. Or disable YAML linting by uninstalling ansible-lint:
+
+   ```bash
+   pip uninstall ansible-lint
+   ```
+
+   Layer 0 will still validate YAML syntax, just not formatting.
+
+### Debugging Tips
+
+**Get verbose output:**
+
+```bash
+ee-preflight my-ee/execution-environment.yml --verbose
+```
+
+**Get JSON output for analysis:**
+
+```bash
+ee-preflight my-ee/execution-environment.yml --json | jq
+```
+
+**Inspect the temporary venv:**
+
+```bash
+ee-preflight my-ee/execution-environment.yml --keep-venv --verbose
+# Look for "Keeping venv at: /tmp/ade-venv-XXXXX"
+source /tmp/ade-venv-XXXXX/bin/activate
+pip list
+ansible-galaxy collection list
+```
+
+**Test with container validation:**
+
+```bash
+ee-preflight my-ee/execution-environment.yml --container-test --verbose
+```
+
+### Still Having Issues?
+
+If you encounter a problem not covered here:
+
+1. Check the [examples/](examples/) directory for sample EE definitions
+2. Search [existing issues](https://github.com/leogallego/ee-preflight/issues)
+3. Open a new issue with:
+   - ee-preflight version (`pip show ee-preflight`)
+   - Full command and `--verbose` output
+   - Your execution-environment.yml (or a minimal reproduction)
+
 ## Project background
 
 ee-preflight was developed on the
@@ -314,6 +654,14 @@ For more context on the design and the problems that motivated this tool, see:
 
 - [Design document](docs/design.md) -- architecture decisions, layer design, and the choice of `ade` over `ansible-galaxy`
 - [Build report](docs/build-report.md) -- the real-world EE build failures that ee-preflight was built to catch
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing guidelines, and PR submission process.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for release history and version notes.
 
 ## License
 

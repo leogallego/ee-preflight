@@ -1,0 +1,14 @@
+---
+collections:
+  # Red Hat Ansible Automation Platform certified collections
+  # These require authentication with Red Hat Automation Hub
+  - name: ansible.controller
+    version: ">=4.5.0"
+  - name: ansible.eda
+    version: ">=1.4.0"
+
+  # Community collections from Ansible Galaxy (no authentication needed)
+  - name: ansible.posix
+    version: ">=1.5.0"
+  - name: community.general
+    version: ">=8.0.0"

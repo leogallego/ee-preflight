@@ -10,3 +10,4 @@ tmp/
 .ruff_cache/
 .venv/
 *.egg
+.ee-preflight-cache.json

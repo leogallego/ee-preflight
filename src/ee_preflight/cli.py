@@ -23,12 +23,21 @@ def main() -> None:
     parser.add_argument("--container-test", action="store_true", help="Test wheel builds in container")
     parser.add_argument("--json", action="store_true", dest="json_output", help="Output JSON")
     parser.add_argument("--verbose", action="store_true", help="Show passing checks")
+    parser.add_argument("--no-cache", action="store_true", help="Skip reading dependency cache")
+    parser.add_argument("--clear-cache", action="store_true", help="Clear dependency cache before run")
 
     args = parser.parse_args()
 
     if not args.ee_path.exists():
         print(f"Error: {args.ee_path} not found", file=sys.stderr)
         sys.exit(1)
+
+    # Handle cache clearing
+    if args.clear_cache:
+        from .cache import DependencyCache
+
+        cache = DependencyCache()
+        cache.clear()
 
     results = run(
         ee_path=args.ee_path,
@@ -39,6 +48,7 @@ def main() -> None:
         keep_venv=args.keep_venv,
         container_test=args.container_test,
         verbose=args.verbose,
+        use_cache=not args.no_cache,
     )
 
     if args.json_output:

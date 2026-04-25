@@ -11,6 +11,7 @@ Errors in this layer (e.g., missing files) skip Layers 1-3.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -33,15 +34,13 @@ def validate(ctx: ValidateContext) -> LayerResult:
     findings: list[Finding] = []
 
     _check_ansible_lint(ctx, findings)
-    _check_stray_collections(ctx, findings)
     _check_file_refs(ctx, findings)
     _check_build_args(ctx, findings)
     _check_base_image(ctx, findings)
     _check_ah_collections(ctx, findings)
 
-    blocking_codes = {"missing_file", "duplicate_galaxy", "stray_collections"}
-    has_blockers = any(f.code in blocking_codes for f in findings)
-    status: LayerStatus = "fail" if has_blockers else "pass"
+    has_missing_files = any(f.code == "missing_file" for f in findings)
+    status: LayerStatus = "fail" if has_missing_files else "pass"
 
     return LayerResult(name="prechecks", status=status, findings=findings)
 
@@ -68,65 +67,40 @@ def _check_ansible_lint(ctx: ValidateContext, findings: list[Finding]) -> None:
 
     try:
         proc = subprocess.run(
-            ["ansible-lint", str(ctx.ee.path)],
+            ["ansible-lint", "--format", "codeclimate", str(ctx.ee.path)],
             capture_output=True,
             text=True,
             timeout=30,
         )
         if proc.returncode != 0:
-            for line in proc.stdout.splitlines():
-                if ctx.ee.path.name in line and "]" in line:
-                    findings.append(
-                        Finding(
-                            severity=Severity.WARNING,
-                            message=f"ansible-lint: {line.strip()}",
-                        )
-                    )
+            _parse_ansible_lint_output(proc.stdout, findings)
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
 
 
-def _check_stray_collections(ctx: ValidateContext, findings: list[Finding]) -> None:
-    """Check for collections defined at root level instead of under dependencies.
-
-    In v3 EE schema, collections must be under dependencies: galaxy: (as a file
-    path or inline list). A root-level 'collections:' key is not valid v3 syntax.
-    """
-    raw = ctx.ee.raw
-    if raw.get("version", 1) < 3:
+def _parse_ansible_lint_output(output: str, findings: list[Finding]) -> None:
+    """Parse ansible-lint codeclimate JSON output into findings."""
+    for line in output.splitlines():
+        line = line.strip()
+        if not line.startswith("["):
+            continue
+        try:
+            issues = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        for issue in issues:
+            rule = issue.get("check_name", "")
+            desc = issue.get("description", "")
+            severity = Severity.ERROR if "schema" in rule else Severity.WARNING
+            findings.append(
+                Finding(
+                    severity=severity,
+                    message=f"ansible-lint [{rule}]: {desc}",
+                    code="ansible_lint",
+                )
+            )
         return
 
-    has_root_collections = "collections" in raw
-    if not has_root_collections:
-        return
-
-    deps = raw.get("dependencies", {})
-    has_dep_galaxy = deps.get("galaxy") is not None
-
-    if has_dep_galaxy:
-        findings.append(
-            Finding(
-                severity=Severity.ERROR,
-                message=(
-                    "Collections defined both at root level and under "
-                    "dependencies.galaxy — choose one or the other"
-                ),
-                fix="Remove the top-level 'collections:' key or the 'dependencies: galaxy:' entry",
-                code="duplicate_galaxy",
-            )
-        )
-    else:
-        findings.append(
-            Finding(
-                severity=Severity.ERROR,
-                message=(
-                    "Collections defined at root level — not valid v3 schema. "
-                    "Move them under 'dependencies: galaxy: collections:'"
-                ),
-                fix="Move 'collections:' under 'dependencies: galaxy:'",
-                code="stray_collections",
-            )
-        )
 
 
 def _check_file_refs(ctx: ValidateContext, findings: list[Finding]) -> None:

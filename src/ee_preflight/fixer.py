@@ -367,7 +367,14 @@ def _fix_stray_collections(ee: EEDefinition, changes: list[str]) -> None:
     if ee.galaxy is not None and ee.galaxy.format == DepFormat.FILE:
         if ee.galaxy.file_path and not ee.galaxy.file_path.exists():
             # Case A: FILE format, file missing – create from root collections
-            data = {"collections": list(root_collections)}
+            seen: set[str] = set()
+            deduped: list = []
+            for c in root_collections:
+                name = _collection_name(c)
+                if name not in seen:
+                    seen.add(name)
+                    deduped.append(c)
+            data = {"collections": deduped}
             ee.galaxy.file_path.write_text(yaml.dump(data, default_flow_style=False))
             changes.append(
                 f"Created {ee.galaxy.file_path.name} from root-level collections"

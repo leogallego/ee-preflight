@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Literal
 
 from .ee_parser import parse_ee
-from .fixer import apply_fixes, apply_layer0_fixes
+from .fixer import apply_fixes, apply_layer0_fixes, backup_ee_files
 from .layers import galaxy, prechecks, python_deps, system_deps
 from .models import EEDefinition, Finding, LayerResult, Severity, ValidateContext
 
@@ -84,6 +84,22 @@ def run(
     )
 
     results: list[LayerResult] = []
+
+    if fix:
+        backups = backup_ee_files(ee)
+        if backups:
+            results.append(
+                LayerResult(
+                    name="fix",
+                    status="pass",
+                    findings=[
+                        Finding(
+                            severity=Severity.INFO,
+                            message=f"Backed up {len(backups)} file(s) before applying fixes",
+                        )
+                    ],
+                )
+            )
 
     try:
         # Layer 0: Pre-checks

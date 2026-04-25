@@ -12,11 +12,32 @@ Python dependency fixes are not yet implemented (no layer produces them).
 from __future__ import annotations
 
 import re
+import shutil
 from pathlib import Path
 
 import yaml
 
 from .models import DepFormat, EEDefinition, Finding, pkg_name
+
+
+def backup_ee_files(ee: EEDefinition) -> list[str]:
+    """Create .bak copies of all EE-related files before --fix modifies them.
+
+    Call once at the start of a --fix run. Only backs up files that exist.
+
+    Returns:
+        List of backup file paths created.
+    """
+    backed_up: list[str] = []
+    files = [ee.path]
+    for dep in (ee.galaxy, ee.python, ee.system):
+        if dep and dep.format == DepFormat.FILE and dep.file_path and dep.file_path.exists():
+            files.append(dep.file_path)
+    for path in files:
+        bak = path.with_suffix(path.suffix + ".bak")
+        shutil.copy2(path, bak)
+        backed_up.append(str(bak))
+    return backed_up
 
 
 def apply_fixes(ee: EEDefinition, findings: list[Finding]) -> list[str]:

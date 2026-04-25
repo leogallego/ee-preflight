@@ -33,13 +33,15 @@ def validate(ctx: ValidateContext) -> LayerResult:
     findings: list[Finding] = []
 
     _check_ansible_lint(ctx, findings)
+    _check_stray_collections(ctx, findings)
     _check_file_refs(ctx, findings)
     _check_build_args(ctx, findings)
     _check_base_image(ctx, findings)
     _check_ah_collections(ctx, findings)
 
-    has_missing_files = any(f.code == "missing_file" for f in findings)
-    status: LayerStatus = "fail" if has_missing_files else "pass"
+    blocking_codes = {"missing_file", "duplicate_galaxy", "stray_collections"}
+    has_blockers = any(f.code in blocking_codes for f in findings)
+    status: LayerStatus = "fail" if has_blockers else "pass"
 
     return LayerResult(name="prechecks", status=status, findings=findings)
 
@@ -82,6 +84,49 @@ def _check_ansible_lint(ctx: ValidateContext, findings: list[Finding]) -> None:
                     )
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
+
+
+def _check_stray_collections(ctx: ValidateContext, findings: list[Finding]) -> None:
+    """Check for collections defined at root level instead of under dependencies.
+
+    In v3 EE schema, collections must be under dependencies: galaxy: (as a file
+    path or inline list). A root-level 'collections:' key is not valid v3 syntax.
+    """
+    raw = ctx.ee.raw
+    if raw.get("version", 1) < 3:
+        return
+
+    has_root_collections = "collections" in raw
+    if not has_root_collections:
+        return
+
+    deps = raw.get("dependencies", {})
+    has_dep_galaxy = deps.get("galaxy") is not None
+
+    if has_dep_galaxy:
+        findings.append(
+            Finding(
+                severity=Severity.ERROR,
+                message=(
+                    "Collections defined both at root level and under "
+                    "dependencies.galaxy — choose one or the other"
+                ),
+                fix="Remove the top-level 'collections:' key or the 'dependencies: galaxy:' entry",
+                code="duplicate_galaxy",
+            )
+        )
+    else:
+        findings.append(
+            Finding(
+                severity=Severity.ERROR,
+                message=(
+                    "Collections defined at root level — not valid v3 schema. "
+                    "Move them under 'dependencies: galaxy: collections:'"
+                ),
+                fix="Move 'collections:' under 'dependencies: galaxy:'",
+                code="stray_collections",
+            )
+        )
 
 
 def _check_file_refs(ctx: ValidateContext, findings: list[Finding]) -> None:

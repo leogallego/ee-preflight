@@ -89,10 +89,11 @@ def run(
         # Layer 0: Pre-checks
         r0 = prechecks.validate(ctx)
         results.append(r0)
-        missing_files = any(f.code == "missing_file" for f in r0.findings)
+        blocking_codes = {"missing_file", "duplicate_galaxy", "stray_collections"}
+        has_blockers = any(f.code in blocking_codes for f in r0.findings)
 
-        # Skip downstream layers if required files are missing
-        if missing_files:
+        # Skip downstream layers if Layer 0 found blocking issues
+        if has_blockers:
             results.extend(
                 [
                     LayerResult(name="galaxy", status="skipped"),

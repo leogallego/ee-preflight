@@ -14,6 +14,7 @@ from __future__ import annotations
 import re
 import shutil
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -359,10 +360,10 @@ def apply_layer0_fixes(ee: EEDefinition, findings: list[Finding]) -> list[str]:
     return changes
 
 
-def _collection_name(entry: str | dict) -> str:
+def _collection_name(entry: str | dict[str, Any]) -> str:
     """Extract the collection name from an entry (string or dict)."""
     if isinstance(entry, dict):
-        return entry.get("name", "")
+        return str(entry.get("name", ""))
     return str(entry)
 
 
@@ -389,7 +390,7 @@ def _fix_stray_collections(ee: EEDefinition, changes: list[str]) -> None:
         if ee.galaxy.file_path and not ee.galaxy.file_path.exists():
             # Case A: FILE format, file missing – create from root collections
             seen: set[str] = set()
-            deduped: list = []
+            deduped: list[str | dict[str, Any]] = []
             for c in root_collections:
                 name = _collection_name(c)
                 if name not in seen:
@@ -439,7 +440,7 @@ def _fix_stray_collections(ee: EEDefinition, changes: list[str]) -> None:
 
 
 def _add_inline_galaxy_from_root(
-    ee: EEDefinition, collections: list, changes: list[str]
+    ee: EEDefinition, collections: list[str | dict[str, Any]], changes: list[str],
 ) -> None:
     """Add inline galaxy collections to an EE that has no galaxy dep.
 

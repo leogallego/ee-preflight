@@ -32,7 +32,7 @@ class ContainerRuntime:
         self.engine = self._detect(runtime)
 
     def _detect(
-        self, runtime: Literal["podman", "docker"] | None = None
+        self, runtime: Literal["podman", "docker"] | None = None,
     ) -> Literal["podman", "docker"]:
         """Detect or validate container runtime.
 

@@ -173,6 +173,9 @@ class ValidateContext:
         fix: Whether to apply auto-fixes (--fix)
         container_test: Whether to run Layer 3 container wheel test (--container-test)
         verbose: Whether to show INFO-level findings (--verbose)
+        use_cache: Whether to use dependency resolution cache (default True)
+        cache_path: Custom path for the cache file (default: cwd/.ee-preflight-cache.json)
+        runtime: Container runtime preference ("podman", "docker", or None for auto-detect)
     """
 
     ee: EEDefinition

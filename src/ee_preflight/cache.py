@@ -1,3 +1,10 @@
+"""Dependency resolution cache for Layer 3 container wheel tests.
+
+Caches RPM package lookups (dnf provides / apt-file) across runs so that
+repeated ee-preflight invocations skip expensive container queries for
+packages that have already been resolved.
+"""
+
 from __future__ import annotations
 
 import json
@@ -5,6 +12,7 @@ import os
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 CACHE_VERSION = "1"
 DEFAULT_TTL_DAYS = 30
@@ -13,6 +21,8 @@ DEFAULT_CACHE_FILE = ".ee-preflight-cache.json"
 
 @dataclass
 class CacheEntry:
+    """A single cached RPM resolution result keyed by image + package + file."""
+
     base_image: str
     python_package: str
     missing_file: str
@@ -31,7 +41,8 @@ class CacheEntry:
         now = datetime.now(UTC)
         return (now - entry_time) > timedelta(days=ttl_days)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, str | None]:
+        """Serialize to a JSON-compatible dictionary."""
         return {
             "base_image": self.base_image,
             "python_package": self.python_package,
@@ -43,7 +54,8 @@ class CacheEntry:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> CacheEntry:
+    def from_dict(cls, data: dict[str, Any]) -> CacheEntry:
+        """Deserialize from a dictionary (as stored in the cache JSON)."""
         return cls(
             base_image=data["base_image"],
             python_package=data["python_package"],
@@ -56,7 +68,9 @@ class CacheEntry:
 
 
 class DependencyCache:
-    def __init__(self, cache_path: Path | None = None, ttl_days: int = DEFAULT_TTL_DAYS):
+    """On-disk JSON cache for RPM/DEB resolution results from Layer 3."""
+
+    def __init__(self, cache_path: Path | None = None, ttl_days: int = DEFAULT_TTL_DAYS) -> None:
         self.cache_path = cache_path or Path.cwd() / DEFAULT_CACHE_FILE
         self.ttl_days = ttl_days
         self._entries: list[CacheEntry] = []

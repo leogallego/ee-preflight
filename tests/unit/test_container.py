@@ -30,12 +30,11 @@ class TestContainerRuntime:
 
     def test_auto_detect_no_runtime(self):
         """Auto-detection should fail when no runtime is available."""
-        with patch("shutil.which", return_value=None):
-            with pytest.raises(
-                RuntimeError,
-                match="No container runtime found. Install podman or docker",
-            ):
-                ContainerRuntime()
+        with patch("shutil.which", return_value=None), pytest.raises(
+            RuntimeError,
+            match="No container runtime found. Install podman or docker",
+        ):
+            ContainerRuntime()
 
     def test_explicit_podman(self):
         """Explicit podman runtime should be used when available."""
@@ -58,11 +57,10 @@ class TestContainerRuntime:
 
     def test_explicit_unavailable(self):
         """Requesting unavailable runtime should raise clear error."""
-        with patch("shutil.which", return_value=None):
-            with pytest.raises(
-                RuntimeError, match="Requested runtime 'podman' not found"
-            ):
-                ContainerRuntime(runtime="podman")
+        with patch("shutil.which", return_value=None), pytest.raises(
+            RuntimeError, match="Requested runtime 'podman' not found",
+        ):
+            ContainerRuntime(runtime="podman")
 
     def test_pull_command(self):
         """Pull should execute correct command."""

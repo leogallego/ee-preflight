@@ -97,7 +97,6 @@ def _parse_ansible_lint_output(output: str, findings: list[Finding]) -> None:
         return
 
 
-
 def _check_file_refs(ctx: ValidateContext, findings: list[Finding]) -> None:
     """Check that all referenced dependency files exist.
 
@@ -115,7 +114,7 @@ def _check_file_refs(ctx: ValidateContext, findings: list[Finding]) -> None:
     ]:
         if dep_ref is None:
             continue
-        if dep_ref.format.value == "file" and dep_ref.file_path and not dep_ref.file_path.exists():
+        if dep_ref.format == DepFormat.FILE and dep_ref.file_path and not dep_ref.file_path.exists():
             findings.append(
                 Finding(
                     severity=Severity.ERROR,
@@ -169,7 +168,6 @@ def _check_build_args(ctx: ValidateContext, findings: list[Finding]) -> None:
                     fix=f"export {arg_name}=<value> before running",
                 )
             )
-
 
 
 AUTHENTICATED_REGISTRIES = (

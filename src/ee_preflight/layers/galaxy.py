@@ -267,7 +267,8 @@ def _get_ah_access_token(offline_token: str) -> str | None:
     req = urllib.request.Request(AH_SSO_URL, data=data)
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
-            return json.loads(resp.read()).get("access_token")
+            result: str | None = json.loads(resp.read()).get("access_token")
+            return result
     except (urllib.error.URLError, json.JSONDecodeError, TimeoutError):
         return None
 
@@ -278,7 +279,7 @@ def _check_galaxy(namespace: str, name: str) -> bool:
     req = urllib.request.Request(url, method="GET")
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
-            return resp.status == 200
+            return bool(resp.status == 200)
     except urllib.error.HTTPError:
         return False
     except (urllib.error.URLError, TimeoutError):
@@ -292,7 +293,7 @@ def _check_ah(namespace: str, name: str, access_token: str) -> bool:
     req.add_header("Authorization", f"Bearer {access_token}")
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
-            return resp.status == 200
+            return bool(resp.status == 200)
     except urllib.error.HTTPError:
         return False
     except (urllib.error.URLError, TimeoutError):
@@ -332,7 +333,7 @@ def _get_requirements_path(ctx: ValidateContext, findings: list[Finding]) -> Pat
     return tmp
 
 
-def _build_env(ctx: ValidateContext) -> dict:
+def _build_env(ctx: ValidateContext) -> dict[str, str]:
     """Build environment dict for ade install.
 
     Configures Automation Hub authentication if AH_TOKEN is set.

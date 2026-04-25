@@ -56,7 +56,7 @@ def validate(ctx: ValidateContext) -> LayerResult:
     return LayerResult(name="python_deps", status=status, findings=findings)
 
 
-def _read_discovered_python(ctx: ValidateContext) -> list[dict]:
+def _read_discovered_python(ctx: ValidateContext) -> list[dict[str, str | None]]:
     """Read ade's discovered_requirements.txt.
 
     Parses ade's discovered Python deps with collection source attribution.
@@ -71,7 +71,7 @@ def _read_discovered_python(ctx: ValidateContext) -> list[dict]:
     if not path.exists():
         return []
 
-    entries: list[dict] = []
+    entries: list[dict[str, str | None]] = []
     for line in path.read_text().splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
@@ -85,7 +85,7 @@ def _read_discovered_python(ctx: ValidateContext) -> list[dict]:
     return entries
 
 
-def _read_discovered_system(ctx: ValidateContext) -> list[dict]:
+def _read_discovered_system(ctx: ValidateContext) -> list[dict[str, str | list[str] | None]]:
     """Read ade's discovered_bindep.txt.
 
     Parses bindep entries with collection source and platform tags.
@@ -104,7 +104,7 @@ def _read_discovered_system(ctx: ValidateContext) -> list[dict]:
     if not path.exists():
         return []
 
-    entries: list[dict] = []
+    entries: list[dict[str, str | list[str] | None]] = []
     for line in path.read_text().splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
@@ -115,12 +115,12 @@ def _read_discovered_system(ctx: ValidateContext) -> list[dict]:
             line = parts[0].strip()
             source = parts[1].strip()
 
-        pkg_name = line.split()[0]
+        package_name = line.split()[0]
         platforms = re.findall(r"platform:(\S+)", line)
         entries.append(
             {
                 "dep": line,
-                "pkg_name": pkg_name,
+                "pkg_name": package_name,
                 "source": source,
                 "platforms": platforms,
             }
@@ -130,7 +130,7 @@ def _read_discovered_system(ctx: ValidateContext) -> list[dict]:
 
 def _diff_python_deps(
     ctx: ValidateContext,
-    discovered: list[dict],
+    discovered: list[dict[str, str | None]],
     findings: list[Finding],
 ) -> None:
     """Compare discovered Python deps against declared deps.
@@ -148,7 +148,7 @@ def _diff_python_deps(
 
     seen: set[str] = set()
     for entry in discovered:
-        name = pkg_name(entry["dep"])
+        name = pkg_name(str(entry["dep"]))
         if not name or name in declared_names or name in seen:
             continue
         seen.add(name)
@@ -164,7 +164,7 @@ def _diff_python_deps(
 
 def _diff_system_deps(
     ctx: ValidateContext,
-    discovered: list[dict],
+    discovered: list[dict[str, str | list[str] | None]],
     findings: list[Finding],
 ) -> None:
     """Compare discovered system deps against declared deps.
@@ -184,22 +184,22 @@ def _diff_system_deps(
 
     seen: set[str] = set()
     for entry in discovered:
-        pkg_name = entry["pkg_name"]
+        package_name = str(entry["pkg_name"])
         platforms = entry["platforms"]
 
-        if pkg_name in declared_names or pkg_name in seen:
+        if package_name in declared_names or package_name in seen:
             continue
 
         # Skip if platform tags don't match the target platform
-        if platforms and not _matches_platform(platforms, target_platform):
+        if platforms and not _matches_platform(list(platforms), target_platform):
             continue
 
-        seen.add(pkg_name)
+        seen.add(package_name)
 
         findings.append(
             Finding(
                 severity=Severity.WARNING,
-                message=f"Undeclared system dep: {pkg_name}",
+                message=f"Undeclared system dep: {package_name}",
                 fix=f"Add '{entry['dep']}' to bindep.txt",
                 source=f"from collection {entry['source']}" if entry["source"] else None,
             )
@@ -290,6 +290,7 @@ def read_declared_system(ctx: ValidateContext) -> list[str]:
 
 
 def _read_declared_python(ctx: ValidateContext) -> list[str]:
+    """Read declared Python dependencies from the EE definition."""
     if ctx.ee.python is None:
         return []
     if ctx.ee.python.format == DepFormat.FILE and ctx.ee.python.file_path and ctx.ee.python.file_path.exists():
@@ -304,6 +305,7 @@ def _read_declared_python(ctx: ValidateContext) -> list[str]:
 
 
 def _read_declared_system(ctx: ValidateContext) -> list[str]:
+    """Read declared system (bindep) dependencies from the EE definition."""
     if ctx.ee.system is None:
         return []
     if ctx.ee.system.format == DepFormat.FILE and ctx.ee.system.file_path and ctx.ee.system.file_path.exists():

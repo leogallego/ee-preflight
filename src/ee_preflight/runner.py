@@ -56,7 +56,10 @@ def run(
         venv_path: Custom venv path (if None, creates temp venv in tmp/)
         keep_venv: Keep temp venv after run (only applies to auto-created venvs)
         container_test: Force Layer 3 container wheel test
+        runtime: Container runtime preference ("podman", "docker", or None for auto-detect)
         verbose: Show INFO-level findings in output
+        use_cache: Use dependency resolution cache (default True)
+        cache_path: Custom path for the cache file
 
     Returns:
         List of LayerResult objects, one per layer executed

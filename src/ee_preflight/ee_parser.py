@@ -8,6 +8,7 @@ build steps, and other metadata. Supports EE schema versions 1-3.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -53,7 +54,7 @@ def parse_ee(ee_path: Path) -> EEDefinition:
     )
 
 
-def _extract_base_image(raw: dict, version: int) -> str:
+def _extract_base_image(raw: dict[str, Any], version: int) -> str:
     """Extract the base image from the EE definition.
 
     Schema version 3+ uses images.base_image.name.
@@ -71,7 +72,7 @@ def _extract_base_image(raw: dict, version: int) -> str:
     return str(raw.get("build_arg_defaults", {}).get("EE_BASE_IMAGE", ""))
 
 
-def _parse_dep(raw: dict, dep_type: str, ee_dir: Path) -> DepRef | None:
+def _parse_dep(raw: dict[str, Any], dep_type: str, ee_dir: Path) -> DepRef | None:
     """Parse a dependency reference from the EE definition.
 
     Dependencies can be declared as:

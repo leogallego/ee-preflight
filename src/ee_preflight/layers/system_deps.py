@@ -318,13 +318,14 @@ def _test_wheel_build(
         bindep_install: Command to install declared bindep packages
         python_version: Python version string (e.g., "3.11")
         extra_rpms: Additional RPMs to install (from previous retries)
+        cache: Optional dependency cache for lookup results
 
     Returns:
         Tuple of (findings, providing_package):
         - findings: List of findings from this wheel build test
         - providing_package: RPM that provides the missing dependency, or None
     """
-    pkg_name = pkg.split(">=")[0].split("==")[0].split("<")[0].strip()
+    package_name = pkg.split(">=")[0].split("==")[0].split("<")[0].strip()
     pkgmgr = ctx.ee.options.get("package_manager_path", "/usr/bin/microdnf")
     pycmd = f"python{python_version}"
 
@@ -346,9 +347,9 @@ def _test_wheel_build(
         return [
             Finding(
                 severity=Severity.WARNING,
-                message=f"Wheel build timed out: {pkg_name} (180s)",
+                message=f"Wheel build timed out: {package_name} (180s)",
                 fix="Package may need more time or have a stuck build dependency",
-                source=f"required by {pkg_name}",
+                source=f"required by {package_name}",
             )
         ], None
     findings: list[Finding] = []
@@ -357,7 +358,7 @@ def _test_wheel_build(
         findings.append(
             Finding(
                 severity=Severity.INFO,
-                message=f"Wheel build OK: {pkg_name}",
+                message=f"Wheel build OK: {package_name}",
             )
         )
         return findings, None
@@ -367,40 +368,40 @@ def _test_wheel_build(
 
     if missing_file:
         pkg_provider = _find_providing_package(
-            runtime, image, missing_file, python_version, pkg_name=pkg_name, cache=cache
+            runtime, image, missing_file, python_version, pkg_name=package_name, cache=cache,
         )
         if pkg_provider:
             findings.append(
                 Finding(
                     severity=Severity.ERROR,
-                    message=f"{pkg_name} failed to build: {missing_file} not found",
+                    message=f"{package_name} failed to build: {missing_file} not found",
                     fix=f"Add '{pkg_provider}' to bindep.txt",
-                    source=f"required by {pkg_name}",
+                    source=f"required by {package_name}",
                     code="missing_system_dep",
                 )
             )
             return findings, pkg_provider
-        else:
-            findings.append(
-                Finding(
-                    severity=Severity.ERROR,
-                    message=f"{pkg_name} failed to build: {missing_file} not found",
-                    fix=f"Find the package providing {missing_file} for your base image and add it to bindep.txt",
-                    source=f"required by {pkg_name}",
-                    code="missing_system_dep",
-                )
-            )
-            return findings, None
-    else:
+
         findings.append(
             Finding(
                 severity=Severity.ERROR,
-                message=f"{pkg_name} failed to build",
-                source=f"pip wheel output: {output[-300:]}",
-                code="build_failure",
+                message=f"{package_name} failed to build: {missing_file} not found",
+                fix=f"Find the package providing {missing_file} for your base image and add it to bindep.txt",
+                source=f"required by {package_name}",
+                code="missing_system_dep",
             )
         )
         return findings, None
+
+    findings.append(
+        Finding(
+            severity=Severity.ERROR,
+            message=f"{package_name} failed to build",
+            source=f"pip wheel output: {output[-300:]}",
+            code="build_failure",
+        )
+    )
+    return findings, None
 
 
 def _extract_missing_file(output: str) -> str | None:
@@ -439,6 +440,8 @@ def _find_providing_package(
         image: Container image name
         missing_file: Missing file/library name
         python_version: Python version string
+        pkg_name: Python package that needs this file
+        cache: Optional dependency cache for lookup results
 
     Returns:
         Package name that provides the missing file, or None if not found

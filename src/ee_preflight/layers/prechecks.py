@@ -55,16 +55,6 @@ def _check_ansible_lint(ctx: ValidateContext, findings: list[Finding]) -> None:
         ctx: Validation context
         findings: List to append findings to
     """
-    if not shutil.which("ansible-lint"):
-        findings.append(
-            Finding(
-                severity=Severity.INFO,
-                message="ansible-lint not found, skipping YAML format check",
-                fix="pip install ansible-lint",
-            )
-        )
-        return
-
     try:
         proc = subprocess.run(
             ["ansible-lint", "--format", "codeclimate", str(ctx.ee.path)],

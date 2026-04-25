@@ -36,7 +36,7 @@ src/ee_preflight/
 - Uses ade's discovered_requirements.txt (not `ansible-builder introspect`) for Layer 2
 - All RPM resolution happens inside the target container (Layer 3), not on the host
 - `from __future__ import annotations` in all modules (3.9-compat, minimum target is 3.11)
-- pyyaml is the only Python library dependency; ade is a CLI tool dependency
+- Core dependencies: pyyaml, ansible-dev-environment (ade), ansible-lint
 
 ## Testing
 

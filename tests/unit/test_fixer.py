@@ -3,8 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 from textwrap import dedent
 
+import yaml
+
 from ee_preflight.ee_parser import parse_ee
-from ee_preflight.fixer import _extract_quoted_entries, apply_fixes
+from ee_preflight.fixer import (
+    _extract_quoted_entries,
+    _remove_root_key,
+    apply_fixes,
+    apply_layer0_fixes,
+)
 from ee_preflight.models import (
     EEDefinition,
     Finding,
@@ -175,3 +182,297 @@ class TestExtractQuotedEntries:
         entries = _extract_quoted_entries(findings)
 
         assert entries == ["libxml2-devel", "openssl-devel", "python3-devel"]
+
+
+class TestFixStrayCollections:
+    """Tests for _fix_stray_collections via apply_layer0_fixes."""
+
+    def test_case_a_missing_galaxy_file_creates_requirements(self, tmp_path: Path):
+        """Case A: galaxy file ref exists but file missing + root collections
+        -> creates requirements.yml from root collections."""
+        ee_yml = tmp_path / "execution-environment.yml"
+        ee_yml.write_text(
+            dedent("""\
+                version: 3
+                images:
+                  base_image:
+                    name: test:latest
+                dependencies:
+                  galaxy: requirements.yml
+                collections:
+                  - name: ansible.posix
+                  - name: community.general
+            """)
+        )
+
+        # Do NOT create requirements.yml — it should be missing
+        ee = parse_ee(ee_yml)
+
+        findings = [
+            Finding(
+                severity=Severity.WARNING,
+                message="stray collections",
+                code="stray_collections",
+            ),
+        ]
+
+        changes = apply_layer0_fixes(ee, findings)
+
+        # requirements.yml should now exist with the collections
+        reqs = tmp_path / "requirements.yml"
+        assert reqs.exists()
+        data = yaml.safe_load(reqs.read_text())
+        names = [c["name"] if isinstance(c, dict) else c for c in data["collections"]]
+        assert "ansible.posix" in names
+        assert "community.general" in names
+
+        # Root collections key should be removed from EE
+        ee_content = yaml.safe_load(ee_yml.read_text())
+        assert "collections" not in ee_content
+
+        assert any("Created" in c for c in changes)
+        assert any("Removed root-level" in c for c in changes)
+
+    def test_case_b_existing_galaxy_file_merges_deduplicates(self, tmp_path: Path):
+        """Case B: galaxy file ref + file exists + root collections
+        -> merges and deduplicates."""
+        ee_yml = tmp_path / "execution-environment.yml"
+        ee_yml.write_text(
+            dedent("""\
+                version: 3
+                images:
+                  base_image:
+                    name: test:latest
+                dependencies:
+                  galaxy: requirements.yml
+                collections:
+                  - name: ansible.posix
+                  - name: community.crypto
+            """)
+        )
+
+        # Create requirements.yml with an existing collection
+        reqs = tmp_path / "requirements.yml"
+        reqs.write_text(
+            dedent("""\
+                collections:
+                  - name: ansible.posix
+                  - name: ansible.utils
+            """)
+        )
+
+        ee = parse_ee(ee_yml)
+
+        findings = [
+            Finding(
+                severity=Severity.WARNING,
+                message="stray collections",
+                code="stray_collections",
+            ),
+        ]
+
+        apply_layer0_fixes(ee, findings)
+
+        # requirements.yml should have merged entries, no duplicates
+        data = yaml.safe_load(reqs.read_text())
+        names = [c["name"] if isinstance(c, dict) else c for c in data["collections"]]
+        assert names.count("ansible.posix") == 1
+        assert "ansible.utils" in names
+        assert "community.crypto" in names
+
+        # Root collections key should be removed from EE
+        ee_content = yaml.safe_load(ee_yml.read_text())
+        assert "collections" not in ee_content
+
+    def test_case_d_no_galaxy_dep_adds_inline(self, tmp_path: Path):
+        """Case D: no galaxy dep + root collections -> adds inline to EE."""
+        ee_yml = tmp_path / "execution-environment.yml"
+        ee_yml.write_text(
+            dedent("""\
+                version: 3
+                images:
+                  base_image:
+                    name: test:latest
+                dependencies:
+                  python: requirements.txt
+                collections:
+                  - name: ansible.posix
+            """)
+        )
+        # Create a dummy requirements.txt so parse_ee doesn't fail on it
+        (tmp_path / "requirements.txt").write_text("")
+
+        ee = parse_ee(ee_yml)
+
+        findings = [
+            Finding(
+                severity=Severity.WARNING,
+                message="stray collections",
+                code="stray_collections",
+            ),
+        ]
+
+        changes = apply_layer0_fixes(ee, findings)
+
+        # EE should now have inline galaxy collections
+        ee_content = yaml.safe_load(ee_yml.read_text())
+        assert "collections" not in ee_content  # root key removed
+        galaxy_dep = ee_content.get("dependencies", {}).get("galaxy", {})
+        assert "collections" in galaxy_dep
+        coll_names = [
+            c["name"] if isinstance(c, dict) else c
+            for c in galaxy_dep["collections"]
+        ]
+        assert "ansible.posix" in coll_names
+
+        assert any("Added inline galaxy" in c for c in changes)
+
+
+class TestRemoveRootKey:
+    """Tests for _remove_root_key."""
+
+    def test_removes_key_and_block(self, tmp_path: Path):
+        """Root key and all indented children are removed."""
+        yaml_file = tmp_path / "test.yml"
+        yaml_file.write_text(
+            dedent("""\
+                version: 3
+                collections:
+                  - name: foo
+                  - name: bar
+                images:
+                  base_image:
+                    name: test:latest
+            """)
+        )
+
+        _remove_root_key(yaml_file, "collections")
+
+        content = yaml_file.read_text()
+        assert "collections" not in content
+        assert "foo" not in content
+        assert "bar" not in content
+        # Other keys should remain
+        assert "version: 3" in content
+        assert "images:" in content
+        assert "test:latest" in content
+
+    def test_removes_last_key(self, tmp_path: Path):
+        """Removing the last key in the file works."""
+        yaml_file = tmp_path / "test.yml"
+        yaml_file.write_text(
+            dedent("""\
+                version: 3
+                extra:
+                  key: value
+            """)
+        )
+
+        _remove_root_key(yaml_file, "extra")
+
+        content = yaml_file.read_text()
+        assert "extra" not in content
+        assert "key" not in content
+        assert "version: 3" in content
+
+
+class TestApplyLayer0Fixes:
+    """Tests for apply_layer0_fixes routing logic."""
+
+    def test_routes_stray_collections(self, tmp_path: Path):
+        """apply_layer0_fixes handles stray_collections finding."""
+        ee_yml = tmp_path / "execution-environment.yml"
+        ee_yml.write_text(
+            dedent("""\
+                version: 3
+                images:
+                  base_image:
+                    name: test:latest
+                dependencies:
+                  galaxy: requirements.yml
+                collections:
+                  - name: ansible.posix
+            """)
+        )
+        # No requirements.yml – Case A
+
+        ee = parse_ee(ee_yml)
+
+        findings = [
+            Finding(
+                severity=Severity.WARNING,
+                message="stray",
+                code="stray_collections",
+            ),
+        ]
+
+        changes = apply_layer0_fixes(ee, findings)
+
+        assert len(changes) > 0
+        reqs = tmp_path / "requirements.yml"
+        assert reqs.exists()
+
+    def test_routes_missing_system_file(self, tmp_path: Path):
+        """apply_layer0_fixes creates empty file for missing system dep."""
+        ee_yml = tmp_path / "execution-environment.yml"
+        ee_yml.write_text(
+            dedent("""\
+                version: 3
+                images:
+                  base_image:
+                    name: test:latest
+                dependencies:
+                  galaxy: requirements.yml
+                  system: bindep.txt
+            """)
+        )
+        # Create galaxy file but NOT bindep.txt
+        (tmp_path / "requirements.yml").write_text(
+            "collections:\n  - name: ansible.posix\n"
+        )
+
+        ee = parse_ee(ee_yml)
+
+        findings = [
+            Finding(
+                severity=Severity.ERROR,
+                message="missing file",
+                code="missing_file",
+                source="system",
+            ),
+        ]
+
+        changes = apply_layer0_fixes(ee, findings)
+
+        assert (tmp_path / "bindep.txt").exists()
+        assert any("Created empty bindep.txt" in c for c in changes)
+
+    def test_ignores_non_system_missing_file(self, tmp_path: Path):
+        """apply_layer0_fixes only creates files for source=system."""
+        ee_yml = tmp_path / "execution-environment.yml"
+        ee_yml.write_text(
+            dedent("""\
+                version: 3
+                images:
+                  base_image:
+                    name: test:latest
+                dependencies:
+                  galaxy: requirements.yml
+            """)
+        )
+
+        ee = parse_ee(ee_yml)
+
+        findings = [
+            Finding(
+                severity=Severity.ERROR,
+                message="missing file",
+                code="missing_file",
+                source="galaxy",
+            ),
+        ]
+
+        changes = apply_layer0_fixes(ee, findings)
+
+        # Should not create any file for galaxy missing_file
+        assert len(changes) == 0

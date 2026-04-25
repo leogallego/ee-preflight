@@ -169,6 +169,44 @@ def _check_base_image(ctx: ValidateContext, findings: list[Finding]) -> None:
             )
         )
 
+    _check_registry_auth(image, findings)
+
+
+AUTHENTICATED_REGISTRIES = (
+    "registry.redhat.io",
+    "registry.connect.redhat.com",
+)
+
+
+def _check_registry_auth(image: str, findings: list[Finding]) -> None:
+    """Check if container registry credentials are configured for the base image."""
+    registry = image.split("/")[0] if "/" in image else None
+    if not registry or registry not in AUTHENTICATED_REGISTRIES:
+        return
+
+    for runtime in ("podman", "docker"):
+        if not shutil.which(runtime):
+            continue
+        try:
+            proc = subprocess.run(
+                [runtime, "login", "--get-login", registry],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if proc.returncode == 0 and proc.stdout.strip():
+                return
+        except subprocess.TimeoutExpired:
+            return
+
+    findings.append(
+        Finding(
+            severity=Severity.WARNING,
+            message=f"Not logged in to {registry} — Layer 3 container pull will fail",
+            fix=f"podman login {registry}",
+        )
+    )
+
 
 AH_PREFIXES = ("ansible.", "redhat.")
 AH_PUBLIC_EXCEPTIONS = {

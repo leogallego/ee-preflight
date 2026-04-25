@@ -15,6 +15,7 @@ All RPM resolution happens inside the container, not on the host.
 from __future__ import annotations
 
 import re
+import subprocess
 
 from ..cache import DependencyCache
 from ..container import ContainerRuntime
@@ -339,7 +340,17 @@ def _test_wheel_build(
         f"{pycmd} -m pip wheel --no-binary :all: '{pkg}' -w /tmp/wheels"
     )
 
-    proc = runtime.run(image, cmd, timeout=180)
+    try:
+        proc = runtime.run(image, cmd, timeout=180)
+    except subprocess.TimeoutExpired:
+        return [
+            Finding(
+                severity=Severity.WARNING,
+                message=f"Wheel build timed out: {pkg_name} (180s)",
+                fix="Package may need more time or have a stuck build dependency",
+                source=f"required by {pkg_name}",
+            )
+        ], None
     findings: list[Finding] = []
 
     if proc.returncode == 0:

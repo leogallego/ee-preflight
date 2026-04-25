@@ -12,16 +12,23 @@ while collection resolution errors fail Layer 1.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import yaml
 
 from ..models import DepFormat, Finding, LayerResult, Severity, ValidateContext
 from .system_deps import MISSING_FILE_PATTERNS
+
+GALAXY_API = "https://galaxy.ansible.com/api/v3/collections"
+AH_API = "https://console.redhat.com/api/automation-hub/v3/collections"
+AH_SSO_URL = "https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token"
 
 # Network errors that should trigger retry with backoff
 TRANSIENT_PATTERNS = [
@@ -67,6 +74,10 @@ def validate(ctx: ValidateContext) -> tuple[LayerResult, list[Finding], set[str]
 
     reqs_path = _get_requirements_path(ctx, findings)
     if reqs_path is None:
+        return LayerResult(name="galaxy", status="fail", findings=findings), [], set()
+
+    not_found = _probe_collections(ctx, findings)
+    if not_found:
         return LayerResult(name="galaxy", status="fail", findings=findings), [], set()
 
     env = _build_env(ctx)
@@ -168,6 +179,124 @@ def validate(ctx: ValidateContext) -> tuple[LayerResult, list[Finding], set[str]
         return LayerResult(name="galaxy", status="fail", findings=findings), [], set()
 
     return LayerResult(name="galaxy", status="fail", findings=findings), [], set()
+
+
+def _probe_collections(ctx: ValidateContext, findings: list[Finding]) -> list[str]:
+    """Probe Galaxy and Automation Hub APIs to verify collections exist.
+
+    Checks each collection against public Galaxy. If AH_TOKEN is set,
+    also checks Automation Hub for collections not found on Galaxy.
+
+    Returns list of collection names not found on any server.
+    """
+    from .prechecks import _extract_collection_names
+
+    collection_names = _extract_collection_names(ctx)
+    if not collection_names:
+        return []
+
+    ah_token = os.environ.get("AH_TOKEN")
+    ah_access_token = _get_ah_access_token(ah_token) if ah_token else None
+
+    not_found: list[str] = []
+    found_on_galaxy: list[str] = []
+    found_on_ah: list[str] = []
+
+    for name in collection_names:
+        parts = name.split(".")
+        if len(parts) < 2:
+            continue
+        namespace, col_name = parts[0], ".".join(parts[1:])
+
+        on_galaxy = _check_galaxy(namespace, col_name)
+        if on_galaxy:
+            found_on_galaxy.append(name)
+            continue
+
+        if ah_access_token:
+            on_ah = _check_ah(namespace, col_name, ah_access_token)
+            if on_ah:
+                found_on_ah.append(name)
+                continue
+
+        not_found.append(name)
+
+    if found_on_galaxy:
+        findings.append(
+            Finding(
+                severity=Severity.INFO,
+                message=f"{len(found_on_galaxy)} collection(s) found on public Galaxy",
+            )
+        )
+
+    if found_on_ah:
+        findings.append(
+            Finding(
+                severity=Severity.INFO,
+                message=(
+                    f"{len(found_on_ah)} collection(s) found on Automation Hub: "
+                    f"{', '.join(found_on_ah)}"
+                ),
+            )
+        )
+
+    for name in not_found:
+        servers = "Galaxy or Automation Hub" if ah_access_token else "public Galaxy"
+        findings.append(
+            Finding(
+                severity=Severity.ERROR,
+                message=f"Collection '{name}' not found on {servers}",
+                fix=(
+                    "Check the collection namespace/name for typos"
+                    if ah_access_token
+                    else f"Set AH_TOKEN if '{name}' is on Automation Hub"
+                ),
+                code="collection_not_found",
+            )
+        )
+
+    return not_found
+
+
+def _get_ah_access_token(offline_token: str) -> str | None:
+    """Exchange an AH offline token for a short-lived access token via Red Hat SSO."""
+    data = (
+        f"grant_type=refresh_token&client_id=cloud-services"
+        f"&refresh_token={offline_token}"
+    ).encode()
+    req = urllib.request.Request(AH_SSO_URL, data=data)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read()).get("access_token")
+    except (urllib.error.URLError, json.JSONDecodeError, TimeoutError):
+        return None
+
+
+def _check_galaxy(namespace: str, name: str) -> bool:
+    """Check if a collection exists on public Galaxy. Returns True if found."""
+    url = f"{GALAXY_API}/{namespace}/{name}/"
+    req = urllib.request.Request(url, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status == 200
+    except urllib.error.HTTPError:
+        return False
+    except (urllib.error.URLError, TimeoutError):
+        return True  # network error — assume exists, let ade install verify
+
+
+def _check_ah(namespace: str, name: str, access_token: str) -> bool:
+    """Check if a collection exists on Automation Hub. Returns True if found."""
+    url = f"{AH_API}/{namespace}/{name}/"
+    req = urllib.request.Request(url, method="GET")
+    req.add_header("Authorization", f"Bearer {access_token}")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status == 200
+    except urllib.error.HTTPError:
+        return False
+    except (urllib.error.URLError, TimeoutError):
+        return True  # network error — assume exists
 
 
 def _get_requirements_path(ctx: ValidateContext, findings: list[Finding]) -> Path | None:

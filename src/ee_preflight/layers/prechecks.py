@@ -1,10 +1,15 @@
 """Layer 0: Pre-checks validation.
 
 This module performs early sanity checks before running expensive operations:
-- YAML linting with ansible-lint (optional)
+- YAML/schema validation via ansible-lint (required dependency)
 - Dependency file existence checks
-- Build argument validation
-- Base image format validation
+- Build argument / environment variable validation
+- Container registry authentication checks
+- Automation Hub collection warnings
+
+Schema and format validation is delegated to ansible-lint. Custom checks
+here only cover runtime concerns (file existence, env vars, registry auth)
+that ansible-lint cannot verify.
 
 Errors in this layer (e.g., missing files) skip Layers 1-3.
 """
@@ -13,7 +18,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import subprocess
 
@@ -36,7 +40,7 @@ def validate(ctx: ValidateContext) -> LayerResult:
     _check_ansible_lint(ctx, findings)
     _check_file_refs(ctx, findings)
     _check_build_args(ctx, findings)
-    _check_base_image(ctx, findings)
+    _check_registry_auth(ctx.ee.base_image, findings)
     _check_ah_collections(ctx, findings)
 
     has_missing_files = any(f.code == "missing_file" for f in findings)
@@ -141,44 +145,6 @@ def _check_build_args(ctx: ValidateContext, findings: list[Finding]) -> None:
                 )
             )
 
-
-def _check_base_image(ctx: ValidateContext, findings: list[Finding]) -> None:
-    """Validate the base image format and presence.
-
-    Checks that a base image is specified and matches expected format.
-    Reports INFO if the image uses SHA digest pinning.
-
-    Args:
-        ctx: Validation context
-        findings: List to append findings to
-    """
-    image = ctx.ee.base_image
-    if not image:
-        findings.append(
-            Finding(
-                severity=Severity.ERROR,
-                message="No base image specified",
-            )
-        )
-        return
-
-    if not re.match(r"^[\w.\-]+(/[\w.\-]+)+(:\S+)?(@sha256:[a-f0-9]+)?$", image):
-        findings.append(
-            Finding(
-                severity=Severity.WARNING,
-                message=f"Base image may be malformed: {image}",
-            )
-        )
-
-    if "@sha256:" in image:
-        findings.append(
-            Finding(
-                severity=Severity.INFO,
-                message="Base image uses SHA digest pin",
-            )
-        )
-
-    _check_registry_auth(image, findings)
 
 
 AUTHENTICATED_REGISTRIES = (

@@ -52,20 +52,20 @@ def validate(ctx: ValidateContext) -> LayerResult:
 def _check_ansible_lint(ctx: ValidateContext, findings: list[Finding]) -> None:
     """Run ansible-lint on the execution-environment.yml file.
 
-    Optional check: skips if ansible-lint is not installed. Reports YAML
-    formatting and style issues as warnings.
+    When --fix is enabled, passes --fix to ansible-lint to auto-fix YAML
+    formatting and other fixable issues before reporting remaining violations.
 
     Args:
         ctx: Validation context
         findings: List to append findings to
     """
+    cmd = ["ansible-lint", "--format", "codeclimate"]
+    if ctx.fix:
+        cmd.append("--fix")
+    cmd.append(str(ctx.ee.path))
+
     try:
-        proc = subprocess.run(
-            ["ansible-lint", "--format", "codeclimate", str(ctx.ee.path)],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         if proc.returncode != 0:
             _parse_ansible_lint_output(proc.stdout, findings)
     except (subprocess.TimeoutExpired, FileNotFoundError):

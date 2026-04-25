@@ -39,6 +39,7 @@ def validate(ctx: ValidateContext) -> LayerResult:
 
     _check_ansible_lint(ctx, findings)
     _check_file_refs(ctx, findings)
+    _check_stray_collections(ctx, findings)
     _check_build_args(ctx, findings)
     _check_registry_auth(ctx.ee.base_image, findings)
     _check_ah_collections(ctx, findings)
@@ -107,7 +108,7 @@ def _check_file_refs(ctx: ValidateContext, findings: list[Finding]) -> None:
         ctx: Validation context
         findings: List to append findings to
     """
-    for _dep_name, dep_ref in [
+    for dep_name, dep_ref in [
         ("galaxy", ctx.ee.galaxy),
         ("python", ctx.ee.python),
         ("system", ctx.ee.system),
@@ -121,8 +122,32 @@ def _check_file_refs(ctx: ValidateContext, findings: list[Finding]) -> None:
                     message=f"Dependency file not found: {dep_ref.file_path.name}",
                     fix=f"Create {dep_ref.file_path.name} in {ctx.ee.ee_dir}",
                     code="missing_file",
+                    source=dep_name,
                 )
             )
+
+
+def _check_stray_collections(ctx: ValidateContext, findings: list[Finding]) -> None:
+    """Warn if collections are declared at the root level instead of under dependencies.
+
+    In EE schema version 3+, a root-level ``collections`` key is not processed
+    by ansible-builder.  The entries should live under
+    ``dependencies: galaxy: collections:`` instead.
+
+    Args:
+        ctx: Validation context
+        findings: List to append findings to
+    """
+    if ctx.ee.version >= 3 and ctx.ee.raw.get("collections"):
+        findings.append(
+            Finding(
+                severity=Severity.WARNING,
+                message="Root-level 'collections' key is ignored in EE v3; "
+                "move entries under dependencies.galaxy",
+                fix="Move root 'collections' into dependencies.galaxy",
+                code="stray_collections",
+            )
+        )
 
 
 def _check_build_args(ctx: ValidateContext, findings: list[Finding]) -> None:

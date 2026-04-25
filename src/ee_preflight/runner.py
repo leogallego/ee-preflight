@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Literal
 
 from .ee_parser import parse_ee
-from .fixer import apply_fixes
+from .fixer import apply_fixes, apply_layer0_fixes, backup_ee_files
 from .layers import galaxy, prechecks, python_deps, system_deps
 from .models import EEDefinition, Finding, LayerResult, Severity, ValidateContext
 
@@ -85,9 +85,57 @@ def run(
 
     results: list[LayerResult] = []
 
+    if fix:
+        backups = backup_ee_files(ee)
+        if backups:
+            results.append(
+                LayerResult(
+                    name="fix",
+                    status="pass",
+                    findings=[
+                        Finding(
+                            severity=Severity.INFO,
+                            message=f"Backed up {len(backups)} file(s) before applying fixes",
+                        )
+                    ],
+                )
+            )
+
     try:
         # Layer 0: Pre-checks
         r0 = prechecks.validate(ctx)
+
+        has_l0_fixable = any(
+            f.code in ("missing_file", "stray_collections") for f in r0.findings
+        )
+        if fix and has_l0_fixable:
+            l0_findings = [
+                f for f in r0.findings
+                if f.code in ("missing_file", "stray_collections")
+            ]
+            l0_changes = apply_layer0_fixes(ee, l0_findings)
+            if l0_changes:
+                for change in l0_changes:
+                    results.append(
+                        LayerResult(
+                            name="fix",
+                            status="pass",
+                            findings=[Finding(severity=Severity.INFO, message=change)],
+                        )
+                    )
+                ee = parse_ee(ee_path)
+                ctx = ValidateContext(
+                    ee=ee,
+                    venv_path=venv_path,
+                    fix=fix,
+                    container_test=container_test,
+                    runtime=runtime,
+                    verbose=verbose,
+                    use_cache=use_cache,
+                    cache_path=cache_path,
+                )
+                r0 = prechecks.validate(ctx)
+
         results.append(r0)
         missing_files = any(f.code == "missing_file" for f in r0.findings)
 

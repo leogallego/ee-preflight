@@ -12,10 +12,32 @@ Python dependency fixes are not yet implemented (no layer produces them).
 from __future__ import annotations
 
 import re
+import shutil
+from pathlib import Path
 
 import yaml
 
 from .models import DepFormat, EEDefinition, Finding, pkg_name
+
+
+def backup_ee_files(ee: EEDefinition) -> list[str]:
+    """Create .bak copies of all EE-related files before --fix modifies them.
+
+    Call once at the start of a --fix run. Only backs up files that exist.
+
+    Returns:
+        List of backup file paths created.
+    """
+    backed_up: list[str] = []
+    files = [ee.path]
+    for dep in (ee.galaxy, ee.python, ee.system):
+        if dep and dep.format == DepFormat.FILE and dep.file_path and dep.file_path.exists():
+            files.append(dep.file_path)
+    for path in files:
+        bak = path.with_suffix(path.suffix + ".bak")
+        shutil.copy2(path, bak)
+        backed_up.append(str(bak))
+    return backed_up
 
 
 def apply_fixes(ee: EEDefinition, findings: list[Finding]) -> list[str]:
@@ -312,3 +334,224 @@ def _add_inline_deps(ee: EEDefinition, dep_type: str, entries: list[str], change
 
     ee.path.write_text("".join(lines))
     changes.append(f"Added to {ee.path.name} [{dep_type}]: {', '.join(new_entries)}")
+
+
+def apply_layer0_fixes(ee: EEDefinition, findings: list[Finding]) -> list[str]:
+    """Apply Layer 0 fixes (stray collections, missing dep files).
+
+    Called before Layer 1 so that the EE definition can be re-parsed with
+    corrected structure before galaxy resolution proceeds.
+
+    Args:
+        ee: Parsed execution environment definition
+        findings: Layer 0 findings to act on
+
+    Returns:
+        List of human-readable change descriptions
+    """
+    changes: list[str] = []
+    has_stray = any(f.code == "stray_collections" for f in findings)
+    if has_stray:
+        _fix_stray_collections(ee, changes)
+    for f in findings:
+        if f.code == "missing_file" and f.source == "system":
+            _fix_missing_dep_file(ee, "system", changes)
+    return changes
+
+
+def _collection_name(entry: str | dict) -> str:
+    """Extract the collection name from an entry (string or dict)."""
+    if isinstance(entry, dict):
+        return entry.get("name", "")
+    return str(entry)
+
+
+def _fix_stray_collections(ee: EEDefinition, changes: list[str]) -> None:
+    """Move root-level 'collections' into dependencies.galaxy.
+
+    Handles four cases:
+    A) galaxy has FILE format + file missing → create file from root collections
+    B) galaxy has FILE format + file exists → merge into existing file
+    C) galaxy has INLINE format → merge via _add_inline_deps
+    D) galaxy is None → add inline deps block to EE YAML
+
+    After merging, the root-level 'collections' key is removed from the EE file.
+
+    Args:
+        ee: Execution environment definition
+        changes: List to append change descriptions to
+    """
+    root_collections = ee.raw.get("collections", [])
+    if not root_collections:
+        return
+
+    if ee.galaxy is not None and ee.galaxy.format == DepFormat.FILE:
+        if ee.galaxy.file_path and not ee.galaxy.file_path.exists():
+            # Case A: FILE format, file missing – create from root collections
+            seen: set[str] = set()
+            deduped: list = []
+            for c in root_collections:
+                name = _collection_name(c)
+                if name not in seen:
+                    seen.add(name)
+                    deduped.append(c)
+            data = {"collections": deduped}
+            ee.galaxy.file_path.write_text(yaml.dump(data, default_flow_style=False))
+            changes.append(
+                f"Created {ee.galaxy.file_path.name} from root-level collections"
+            )
+        elif ee.galaxy.file_path and ee.galaxy.file_path.exists():
+            # Case B: FILE format, file exists – merge and deduplicate
+            existing_data = yaml.safe_load(ee.galaxy.file_path.read_text()) or {}
+            existing_list = existing_data.get("collections", [])
+            existing_names = {_collection_name(e) for e in existing_list}
+            new_entries = [
+                c for c in root_collections
+                if _collection_name(c) not in existing_names
+            ]
+            if new_entries:
+                merged = existing_list + new_entries
+                existing_data["collections"] = merged
+                ee.galaxy.file_path.write_text(
+                    yaml.dump(existing_data, default_flow_style=False)
+                )
+                names_str = ", ".join(_collection_name(c) for c in new_entries)
+                changes.append(
+                    f"Merged root collections into {ee.galaxy.file_path.name}: {names_str}"
+                )
+            else:
+                changes.append(
+                    f"Root collections already present in {ee.galaxy.file_path.name}"
+                )
+    elif ee.galaxy is not None and ee.galaxy.format == DepFormat.INLINE:
+        # Case C: INLINE format – merge via _add_inline_deps
+        entry_strings = [
+            _collection_name(c) for c in root_collections
+        ]
+        _add_inline_deps(ee, "galaxy", entry_strings, changes)
+    else:
+        # Case D: No galaxy dep – add inline deps block
+        _add_inline_galaxy_from_root(ee, root_collections, changes)
+
+    # Remove root-level 'collections' key from the EE file
+    _remove_root_key(ee.path, "collections")
+    changes.append("Removed root-level 'collections' key from EE file")
+
+
+def _add_inline_galaxy_from_root(
+    ee: EEDefinition, collections: list, changes: list[str]
+) -> None:
+    """Add inline galaxy collections to an EE that has no galaxy dep.
+
+    Inserts ``dependencies: galaxy: collections: [...]`` into the EE YAML.
+
+    Args:
+        ee: Execution environment definition
+        collections: List of collection entries from root level
+        changes: List to append change descriptions to
+    """
+    lines = ee.path.read_text().splitlines(keepends=True)
+
+    # Find dependencies: line
+    dep_line_idx = None
+    for i, line in enumerate(lines):
+        stripped = line.lstrip()
+        if stripped.startswith("dependencies:"):
+            dep_line_idx = i
+            break
+
+    if dep_line_idx is None:
+        # No dependencies key – append one at end of file
+        if lines and not lines[-1].endswith("\n"):
+            lines[-1] += "\n"
+        lines.append("dependencies:\n")
+        dep_line_idx = len(lines) - 1
+
+    # Determine indentation
+    base_indent = len(lines[dep_line_idx]) - len(lines[dep_line_idx].lstrip())
+    child_indent = base_indent + 2
+
+    # Find insertion point: after last child of dependencies
+    last_dep_entry_idx = dep_line_idx
+    for i in range(dep_line_idx + 1, len(lines)):
+        stripped = lines[i].strip()
+        if not stripped or stripped.startswith("#"):
+            last_dep_entry_idx = i
+            continue
+        current_indent = len(lines[i]) - len(lines[i].lstrip())
+        if current_indent > base_indent:
+            last_dep_entry_idx = i
+        else:
+            break
+
+    # Build the galaxy block
+    insert_lines = [f"{' ' * child_indent}galaxy:\n"]
+    insert_lines.append(f"{' ' * (child_indent + 2)}collections:\n")
+    for c in collections:
+        name = _collection_name(c)
+        if name:
+            insert_lines.append(f"{' ' * (child_indent + 4)}- name: {name}\n")
+
+    for offset, new_line in enumerate(insert_lines):
+        lines.insert(last_dep_entry_idx + 1 + offset, new_line)
+
+    ee.path.write_text("".join(lines))
+    names_str = ", ".join(_collection_name(c) for c in collections if _collection_name(c))
+    changes.append(f"Added inline galaxy collections to EE: {names_str}")
+
+
+def _fix_missing_dep_file(ee: EEDefinition, dep_type: str, changes: list[str]) -> None:
+    """Create an empty dependency file for a missing reference.
+
+    Args:
+        ee: Execution environment definition
+        dep_type: Dependency type ("galaxy", "python", or "system")
+        changes: List to append change descriptions to
+    """
+    dep_ref = getattr(ee, dep_type, None)
+    if dep_ref is None or dep_ref.file_path is None:
+        return
+    if dep_ref.file_path.exists():
+        return
+    dep_ref.file_path.touch()
+    changes.append(f"Created empty {dep_ref.file_path.name}")
+
+
+def _remove_root_key(yaml_path: Path, key: str) -> None:
+    """Remove a root-level YAML key and all its indented content.
+
+    Reads the file line by line, identifies the root-level key, skips it and
+    all subsequent lines that are indented (belong to its block), then writes
+    the remaining lines back.
+
+    Args:
+        yaml_path: Path to the YAML file
+        key: Root-level key name to remove (e.g., "collections")
+    """
+    lines = yaml_path.read_text().splitlines(keepends=True)
+    result: list[str] = []
+    skipping = False
+
+    for line in lines:
+        stripped = line.strip()
+        if skipping:
+            # Keep skipping indented lines or blank lines within the block
+            if not stripped:
+                # Skip blank lines within the block
+                continue
+            indent = len(line) - len(line.lstrip())
+            if indent > 0:
+                continue
+            # Hit another root-level key – stop skipping
+            skipping = False
+
+        if not skipping:
+            # Check if this line starts the target root key
+            if stripped.startswith(f"{key}:") or stripped == f"{key}":
+                indent = len(line) - len(line.lstrip())
+                if indent == 0:
+                    skipping = True
+                    continue
+            result.append(line)
+
+    yaml_path.write_text("".join(result))

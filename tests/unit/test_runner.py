@@ -538,3 +538,82 @@ class TestRun:
         python_result = next(r for r in results if r.name == "python_deps")
         # The build finding should be attached to layer 2 findings
         assert any(f.message == "Failed to build wheel" for f in python_result.findings)
+
+    @patch("ee_preflight.runner.apply_layer0_fixes")
+    @patch("ee_preflight.layers.prechecks.validate")
+    @patch("ee_preflight.layers.galaxy.validate")
+    @patch("ee_preflight.layers.python_deps.validate")
+    @patch("ee_preflight.layers.system_deps.validate")
+    def test_staged_fix_applies_layer0_fixes_before_galaxy(
+        self,
+        mock_system: MagicMock,
+        mock_python: MagicMock,
+        mock_galaxy: MagicMock,
+        mock_prechecks: MagicMock,
+        mock_apply_l0: MagicMock,
+        tmp_path: Path,
+    ):
+        """Test staged fix: Layer 0 fixes are applied before proceeding to Layer 1.
+
+        First prechecks call returns a fixable finding (stray_collections).
+        apply_layer0_fixes is called, returns changes.
+        EE is re-parsed and prechecks re-run (passes second time).
+        Galaxy (Layer 1) proceeds normally.
+        """
+        ee_yml = tmp_path / "execution-environment.yml"
+        ee_yml.write_text(
+            dedent("""\
+                version: 3
+                images:
+                  base_image:
+                    name: test:latest
+                dependencies:
+                  galaxy: requirements.yml
+            """)
+        )
+        reqs = tmp_path / "requirements.yml"
+        reqs.write_text("collections:\n  - name: ansible.posix\n")
+
+        # First prechecks returns fixable finding, second passes
+        mock_prechecks.side_effect = [
+            LayerResult(
+                name="prechecks",
+                status="pass",
+                findings=[
+                    Finding(
+                        severity=Severity.WARNING,
+                        message="Root-level collections",
+                        code="stray_collections",
+                    )
+                ],
+            ),
+            LayerResult(name="prechecks", status="pass"),
+        ]
+
+        # apply_layer0_fixes returns change descriptions
+        mock_apply_l0.return_value = [
+            "Created requirements.yml from root-level collections",
+            "Removed root-level 'collections' key from EE file",
+        ]
+
+        mock_galaxy.return_value = (LayerResult(name="galaxy", status="pass"), [], [])
+        mock_python.return_value = LayerResult(name="python_deps", status="pass")
+        mock_system.return_value = LayerResult(name="system_deps", status="skipped")
+
+        results = run(ee_path=ee_yml, fix=True)
+
+        # apply_layer0_fixes should have been called once
+        mock_apply_l0.assert_called_once()
+
+        # prechecks called twice (initial + re-validation after L0 fix)
+        assert mock_prechecks.call_count == 2
+
+        # Fix results should appear in the results list
+        fix_results = [r for r in results if r.name == "fix"]
+        assert len(fix_results) >= 2  # Two change descriptions
+        fix_messages = [r.findings[0].message for r in fix_results]
+        assert any("Created" in m for m in fix_messages)
+        assert any("Removed" in m for m in fix_messages)
+
+        # Galaxy should have been called (Layer 1 proceeds)
+        assert mock_galaxy.called

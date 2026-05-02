@@ -18,16 +18,14 @@ together with actionable fix suggestions.
 pip install ee-preflight
 ```
 
-This installs the `ee-preflight` CLI along with its two Python dependencies
-(`pyyaml` and `ansible-dev-environment`). The `ade` CLI tool provided by
-`ansible-dev-environment` is used internally for collection resolution.
+This installs the `ee-preflight` CLI along with its core Python dependencies
+(`pyyaml`, `ansible-dev-environment`, and `ansible-lint`). The `ade` CLI tool
+provided by `ansible-dev-environment` is used internally for collection
+resolution, and `ansible-lint` provides YAML/schema validation in Layer 0.
 
 ### Optional extras
 
 ```bash
-# YAML linting in Layer 0 (ansible-lint is checked at runtime, not required)
-pip install ee-preflight[lint]
-
 # Run ansible-builder after validation (--build flag)
 pip install ee-preflight[build]
 
@@ -61,7 +59,7 @@ Result: PASS (0 error(s), 1 warning(s))
 ```
 ee-preflight [-h] [--fix] [--build] [--tag TAG] [--venv PATH]
              [--keep-venv] [--container-test] [--runtime {podman|docker}]
-             [--json] [--verbose]
+             [--json] [--verbose] [--no-cache] [--clear-cache]
              ee_path
 ```
 
@@ -84,6 +82,8 @@ ee-preflight [-h] [--fix] [--build] [--tag TAG] [--venv PATH]
 | `--runtime {podman\|docker}` | Force a specific container runtime. Default: auto-detect (podman preferred, then docker). Only used when `--container-test` is enabled. |
 | `--json` | Output results as JSON instead of human-readable text. |
 | `--verbose` | Show passing checks and informational findings that are hidden by default. |
+| `--no-cache` | Skip reading the dependency cache for this run. |
+| `--clear-cache` | Clear the dependency cache before running validation. |
 
 ### Examples
 
@@ -143,15 +143,17 @@ are skipped.
 
 ### Layer 0: Pre-checks
 
-Static validation of the EE definition file itself. No network access or
-external tools required (except optionally `ansible-lint`).
+Static validation of the EE definition file itself. Uses `ansible-lint`
+for YAML/schema validation. No network access required.
 
 **What it catches:**
 
-- YAML syntax and formatting issues (via `ansible-lint`, if installed)
+- YAML syntax, formatting, and schema issues (via `ansible-lint`)
 - Missing dependency files referenced by `execution-environment.yml` (e.g., a `requirements.yml` that does not exist)
+- Stray root-level `collections` key in EE v3 definitions (should be under `dependencies.galaxy`)
 - Undeclared build arguments (`ARG` directives in `additional_build_steps` without a matching environment variable)
-- Malformed base image references
+- Missing container registry authentication for authenticated registries (e.g., `registry.redhat.io`)
+- Collections that may require Automation Hub when `AH_TOKEN` is not set
 
 ### Layer 1: Galaxy resolution
 
@@ -304,7 +306,7 @@ The exit code is `0` when all layers pass and `1` when any error is present.
 | Python | 3.11+ | 3.12 and 3.13 also supported |
 | ade (ansible-dev-environment) | 24.0.0+ | Auto-installed as a pip dependency |
 | pyyaml | 6.0+ | Auto-installed as a pip dependency |
-| ansible-lint | 24.0.0+ | Optional. Enables YAML linting in Layer 0. Install with `pip install ee-preflight[lint]` |
+| ansible-lint | 24.0.0+ | Auto-installed as a pip dependency. Provides YAML/schema validation in Layer 0 |
 | ansible-builder | 3.0.x | Optional. Required only for `--build`. Install with `pip install ee-preflight[build]` |
 | podman or docker | Any | Optional. Required only for `--container-test` (Layer 3) |
 
@@ -587,20 +589,17 @@ Layer 0: Pre-checks ✗
 
 **Solution:**
 
-1. If you have ansible-lint installed, it is enforcing style rules
-2. Fix the issues manually or use ansible-lint to auto-fix:
+1. Fix the issues manually, or use `--fix` to let ansible-lint auto-fix what it can:
+
+   ```bash
+   ee-preflight my-ee/execution-environment.yml --fix
+   ```
+
+2. Or run ansible-lint directly for more control:
 
    ```bash
    ansible-lint --fix execution-environment.yml
    ```
-
-3. Or disable YAML linting by uninstalling ansible-lint:
-
-   ```bash
-   pip uninstall ansible-lint
-   ```
-
-   Layer 0 will still validate YAML syntax, just not formatting.
 
 ### Debugging Tips
 

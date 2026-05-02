@@ -22,6 +22,53 @@ Changes that are in development but not yet released.
 
 ---
 
+## [0.3.1] - 2026-04-25
+
+### Changed
+
+- PEP 8 compliance polish across all modules
+
+---
+
+## [0.3.0] - 2026-04-25
+
+### Added
+
+- **Staged --fix**: Layer 0 fixes now create file backups before applying changes
+
+---
+
+## [0.2.0] - 2026-04-25
+
+### Added
+
+- **Docker runtime support**: Layer 3 now works with docker in addition to podman
+- **Dependency resolution cache**: Layer 3 caches resolved RPM dependencies for faster re-runs
+- **Collection existence probe**: Layer 1 checks if collections exist before running ade install
+- **Registry auth check**: Layer 0 warns when base image requires authenticated registry
+- **Stray collections detection**: Layer 0 detects root-level `collections` key in v3 EE definitions (silently ignored by ansible-builder)
+- **Automation Hub warnings**: Layer 0 warns about collections that may need Automation Hub token
+- **Structured finding codes**: All findings now use structured codes for programmatic matching
+- `--no-cache` and `--clear-cache` CLI flags for cache management
+- `--fix` pass-through to ansible-lint for auto-fixable linting issues
+- Comprehensive unit and integration test suites
+- PyPI packaging configuration and documentation
+
+### Changed
+
+- **ansible-lint is now a required dependency** (was optional `[lint]` extra)
+- Removed custom base image validation, delegated entirely to ansible-lint
+- Improved collection-not-found error messages in galaxy layer
+- Tightened type annotations throughout (LayerStatus literal, parameterized generics)
+
+### Fixed
+
+- Layer 3 no longer crashes on `TimeoutExpired` during wheel builds
+- Post-merge integration issues: missing imports, type consistency
+- Deduplicated `pkg_name` and `missing_file_patterns`
+
+---
+
 ## [0.1.0] - 2026-04-23
 
 Initial public release of ee-preflight.
